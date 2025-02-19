@@ -1,5 +1,6 @@
 import einops as eo
 from dataclasses import dataclass
+from typing import Dict
 from tqdm import tqdm
 import torch
 
@@ -48,6 +49,14 @@ class VolumeResult:
     mults: torch.Tensor
     deltas: torch.Tensor
     logabsint: torch.Tensor
+
+@dataclass
+class DependenceResult:
+    estimates: Dict[str, torch.Tensor]
+    props: Dict[str, torch.Tensor]
+    mults: Dict[str, torch.Tensor]
+    deltas: Dict[str, torch.Tensor]
+    logabsint: Dict[str, torch.Tensor]
 
 def get_estimates_vectorized_gauss(n, 
                                    sigma,

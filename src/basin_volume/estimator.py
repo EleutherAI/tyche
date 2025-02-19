@@ -7,7 +7,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import Dataset
 
 from .data import chunk_and_tokenize
-from .volume import get_estimates_vectorized_gauss, VolumeResult
+from .volume import get_estimates_vectorized_gauss, VolumeResult, DependenceResult
 from .precondition import matrix_preconditioner, diag_preconditioner
 from .utils import BASIN_VOLUME_DIR, list_largest_tensors
 from .pythia import *
@@ -130,7 +130,10 @@ class VolumeEstimator(ABC):
     
     @classmethod
     def from_config(cls, config: VolumeConfig):
-        if config.model_type == "pythia":
+        from .dependence_estimator import DependenceEstimator, DependenceVolumeConfig
+        if isinstance(config, DependenceVolumeConfig):
+            return DependenceEstimator(config)
+        elif config.model_type == "pythia":
             return PythiaEstimator(config)
         elif config.model_type == "convnext":
             return ConvNextEstimator(config)

@@ -7,3 +7,4 @@ from .pythia import *
 from .estimator import *
 from .data import *
 from .vectors import *
+from .dependence_estimator import *

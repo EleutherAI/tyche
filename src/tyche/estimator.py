@@ -7,7 +7,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import Dataset
 
 from .data import chunk_and_tokenize
-from .volume import get_estimates_vectorized_gauss, VolumeResult, DependenceResult
+from .volume import get_estimates_vectorized_gauss, VolumeResult
 from .precondition import matrix_preconditioner, diag_preconditioner
 from .utils import BASIN_VOLUME_DIR, list_largest_tensors
 from .pythia import *
@@ -47,6 +47,7 @@ class VolumeConfig:
     dataset: Optional[Dataset] = None
     text_key: Optional[str] = None
     max_seq_len: Optional[int] = None
+    max_seqs_per_dataset: Optional[int] = None
     # Cache params
     cache_mode: Literal[None, "cpu", "gpu"] = None
     chunking: bool = False
@@ -60,6 +61,15 @@ class VolumeConfig:
     preconditioner_eps: float = 1e-5
     preconditioner_exponent: float = 0.5
     adam_order: int = 2  # 1 for exp_avg, 2 for exp_avg_sq
+
+    # New optional fields for multi-dataset dependence estimation
+    dataset2: Optional[Dataset] = None
+    text_key2: Optional[str] = None
+    val_size2: Optional[int] = None
+    dataset_ref: Optional[Dataset] = None
+    text_key_ref: Optional[str] = None
+    val_size_ref: Optional[int] = None
+    scale_ref: float = 0.8
 
 class VolumeEstimator(ABC):
     def __init__(self, config: VolumeConfig):
@@ -111,21 +121,30 @@ class VolumeEstimator(ABC):
         if self.config.sigma is None:
             self.config.sigma = torch.sqrt((self.params @ self.params) / self.params.shape[0])
         if self.config.debug:
-            print(f"{self.config.sigma = }")
-            
-        return get_estimates_vectorized_gauss(
-            n=self.config.n_samples,
-            batch_size=self.config.model_batch_size,
-            sigma=self.config.sigma,
-            preconditioner=self.preconditioner,
-            fn=self.kl_fn,
-            params=self.params,
-            tol=self.config.tol,
-            y_tol=self.config.y_tol,
-            seed=self.config.seed,
-            cutoff=self.config.cutoff,
-            with_tqdm=self.config.tqdm,
-            debug=self.config.debug
+            print(f"sigma = {self.config.sigma}")
+        multi_results = {}
+        for key, kl_fn in self.kl_fns.items():
+            print(f"Estimating {key} volume")
+            multi_results[key] = get_estimates_vectorized_gauss(
+                n=self.config.n_samples,
+                batch_size=self.config.model_batch_size,
+                sigma=self.config.sigma,
+                preconditioner=self.preconditioner,
+                fn=kl_fn,
+                params=self.params,
+                tol=self.config.tol,
+                y_tol=self.config.y_tol,
+                seed=self.config.seed,
+                cutoff=self.config.cutoff,
+                with_tqdm=self.config.tqdm,
+                debug=self.config.debug,
+            )
+        return VolumeResult(
+            estimates={k: multi_results[k].estimates for k in multi_results},
+            props={k: multi_results[k].props for k in multi_results},
+            mults={k: multi_results[k].mults for k in multi_results},
+            deltas={k: multi_results[k].deltas for k in multi_results},
+            gaussint={k: multi_results[k].gaussint for k in multi_results},
         )
     
     @classmethod
@@ -265,8 +284,24 @@ class CausalLMEstimator(VolumeEstimator):
             else:
                 l2_term = 0
             return kl_term + l2_term
-            
-        self.kl_fn = kl_fn
+        # Instead of self.kl_fn, set up self.kl_fns based on extra datasets.
+        if self.config.dataset2 is None and self.config.dataset_ref is None:
+            self.kl_fns = {"marginal": kl_fn}
+        elif self.config.dataset2 is not None and self.config.dataset_ref is not None:
+            kl_fn_ref = self._kl_fn_factory(self.val_data_ref, self.probs_p_ref, multiplier=self.config.scale_ref)
+            kl_fn1 = lambda a, b: torch.maximum(self._kl_fn_factory(self.val_data, self.probs_p)(a, b), kl_fn_ref(a, b))
+            kl_fn2 = lambda a, b: torch.maximum(self._kl_fn_factory(self.val_data2, self.probs_p2)(a, b), kl_fn_ref(a, b))
+            kl_fn_joint = lambda a, b: torch.maximum(kl_fn1(a, b), kl_fn2(a, b))
+            self.kl_fns = {"joint": kl_fn_joint, "marginal1": kl_fn1, "marginal2": kl_fn2, "ref": kl_fn_ref}
+        elif self.config.dataset2 is not None:
+            kl_fn1 = self._kl_fn_factory(self.val_data, self.probs_p)
+            kl_fn2 = self._kl_fn_factory(self.val_data2, self.probs_p2)
+            kl_fn_joint = lambda a, b: torch.maximum(kl_fn1(a, b), kl_fn2(a, b))
+            self.kl_fns = {"joint": kl_fn_joint, "marginal1": kl_fn1, "marginal2": kl_fn2}
+        elif self.config.dataset_ref is not None:
+            kl_fn_ref = self._kl_fn_factory(self.val_data_ref, self.probs_p_ref, multiplier=self.config.scale_ref)
+            kl_fn1 = lambda a, b: torch.maximum(self._kl_fn_factory(self.val_data, self.probs_p)(a, b), kl_fn_ref(a, b))
+            self.kl_fns = {"marginal1": kl_fn1, "ref": kl_fn_ref}
 
     def load_adam_vector(self):
         raise NotImplementedError("CausalLMEstimator does not support ADAM preconditioning")
@@ -290,6 +325,38 @@ class PythiaEstimator(VolumeEstimator):
         if self.config.sigma is None:
             self.config.sigma = 0.03997834
 
+    def _prepare_dataset(self, dataset, text_key: str, val_size: int):
+        dataset = dataset[:self.config.max_seqs_per_dataset]
+        if self.config.chunking:
+            tokens = chunk_and_tokenize(
+                dataset, self.tokenizer, max_seq_len=self.config.max_seq_len, text_key=text_key
+            )["input_ids"]
+        else:
+            tokens = self.tokenizer(
+                dataset[text_key],
+                padding=True,
+                truncation=True,
+                max_length=self.config.max_seq_len,
+                return_tensors="pt"
+            )["input_ids"]
+        tokens = tokens[:val_size]
+        val_data = tokens.to("cuda")
+        probs_p = None
+        if self.config.cache_mode:
+            probs_list = []
+            for i in range(0, val_data.shape[0], self.config.data_batch_size):
+                seqs = val_data[i:i+self.config.data_batch_size]
+                logits = self.apply_fn(self.params, seqs)
+                probs = torch.nn.functional.softmax(logits, dim=-1)
+                if self.config.cache_mode == "cpu":
+                    probs_list.append(probs.to("cpu"))
+                elif self.config.cache_mode == "gpu":
+                    probs_list.append(probs)
+                else:
+                    raise ValueError(f"Invalid cache mode: {self.config.cache_mode}")
+            probs_p = torch.cat(probs_list, dim=0)
+        return val_data, probs_p
+
     def setup_model(self):
         # Load tokenizer and model
         self.tokenizer = AutoTokenizer.from_pretrained(f"EleutherAI/pythia-{self.config.model_name}")
@@ -303,9 +370,11 @@ class PythiaEstimator(VolumeEstimator):
         trained_params_t = torch.nn.utils.parameters_to_vector(self.model.parameters()).detach()
         self.params = trained_params_t
         
-        # Load validation data
-        self.val_data = load_pythia_val_data(self.tokenizer, n_seqs=self.config.val_size)
-        
+        # Primary validation data
+        self.val_data_ref = load_pythia_val_data(self.tokenizer, n_seqs=self.config.val_size)
+
+  
+
         # Set up apply_fn and kl_fn
         def apply_fn(params, x):
             params_t = torch.from_dlpack(params)
@@ -314,20 +383,42 @@ class PythiaEstimator(VolumeEstimator):
             
         self.apply_fn = apply_fn
         
-        logits_p = self.apply_fn(self.params, self.val_data)
-        probs_p = torch.nn.functional.softmax(logits_p, dim=-1)
+        logits_pref = self.apply_fn(self.params, self.val_data_ref)
+        probs_pref = torch.nn.functional.softmax(logits_pref, dim=-1)
         
-        def kl_fn(a, b):
-            params_q = a + b
-            logits_q = self.apply_fn(params_q, self.val_data)
-            logprobs_q = torch.nn.functional.log_softmax(logits_q, dim=-1)
-            kl_all = torch.nn.functional.kl_div(logprobs_q, probs_p, reduction="none").sum(dim=-1)
-            mask = self.val_data != self.tokenizer.pad_token_id
-            kl_term = torch.mean(kl_all[mask])
-            l2_term = 1/2 * self.config.l2_reg * torch.sum(b**2)
-            return kl_term + l2_term
-            
-        self.kl_fn = kl_fn
+        if self.config.dataset is not None:
+            self.val_data, self.probs_p = self._prepare_dataset(self.config.dataset, self.config.text_key, self.config.val_size)
+        if self.config.dataset2 is not None:
+            self.val_data2, self.probs_p2 = self._prepare_dataset(self.config.dataset2, self.config.text_key2, self.config.val_size2)
+
+        def kl_fn_factory(val_data, probs):
+            def kl_fn(a, b):
+                if not isinstance(b, torch.Tensor):
+                    b = torch.tensor(b)
+                params_q = a + b
+                logits_q = self.apply_fn(params_q, val_data)
+                logprobs_q = torch.nn.functional.log_softmax(logits_q, dim=-1)
+                kl_all = torch.nn.functional.kl_div(logprobs_q, probs, reduction="none").sum(dim=-1)
+                mask = val_data != self.tokenizer.pad_token_id
+                kl_term = torch.mean(kl_all[mask])
+                l2_term = 0.5 * self.config.l2_reg * torch.sum(b**2)
+                return kl_term + l2_term
+            return kl_fn
+
+        if self.config.dataset is None and self.config.dataset2 is None:
+            self.kl_fns = {"ref": kl_fn_factory(self.val_data_ref, probs_pref)}
+        elif self.config.dataset is not None and self.config.dataset2 is not None:
+            # Process datasets
+            print(probs_pref, self.probs_p, self.probs_p2)
+            kl_fn_ref = kl_fn_factory(self.val_data_ref, probs_pref)
+            kl_fn_1_base = kl_fn_factory(self.val_data, self.probs_p)
+            kl_fn_2_base = kl_fn_factory(self.val_data2, self.probs_p2)
+            kl_fn1 = lambda a, b: torch.maximum(kl_fn_1_base(a, b), kl_fn_ref(a, b))
+            kl_fn2 = lambda a, b: torch.maximum(kl_fn_2_base(a, b), kl_fn_ref(a, b))
+            kl_fn_joint = lambda a, b: torch.maximum(kl_fn1(a, b), kl_fn2(a, b))
+            self.kl_fns = {"joint": kl_fn_joint, "marginal1": kl_fn1, "marginal2": kl_fn2, "ref": kl_fn_ref}
+        else:
+            raise ValueError(f"Invalid dataset configuration: either both aux datasets or neither must be provided")
 
     def load_adam_vector(self):
         adam_states = load_pythia_checkpoint_states(self.config.checkpoint_step, self.config.model_name)

@@ -1,11 +1,11 @@
 import torch
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Dict
 from datasets import Dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from .estimator import VolumeConfig, VolumeEstimator
-from .volume import get_estimates_vectorized_gauss, DependenceResult
+from .volume import get_estimates_vectorized_gauss
 from .data import chunk_and_tokenize
 from .vectors import ImplicitParamVector
 
@@ -14,8 +14,38 @@ class DependenceVolumeConfig(VolumeConfig):
     dataset2: Optional[Dataset] = None
     text_key2: Optional[str] = None
     val_size2: Optional[int] = None
+    dataset_ref: Optional[Dataset] = None
+    text_key_ref: Optional[str] = None
+    val_size_ref: Optional[int] = None
+    scale_ref: float = 0.8
+
+@dataclass
+class DependenceResult:
+    """
+    Results of dependence estimation. Each dict has four keys:
+     - marginal1: marginal estimate for dataset1 and reference dataset
+     - marginal2: marginal estimate for dataset2 and reference dataset
+     - joint: joint estimate for both datasets and reference dataset
+     - reference: marginal estimate for reference dataset alone
+
+    Attributes:
+        estimates: The estimated log-probability.
+        props: Lengths of proposal vectors.
+        mults: Multipliers (relative to `props`) for the basin radius.
+        deltas: Difference between fn at basin edge and center.
+        gaussint: Log of Gaussian integral term.
+    """
+    estimates: Dict[str, torch.Tensor]
+    props: Dict[str, torch.Tensor]
+    mults: Dict[str, torch.Tensor]
+    deltas: Dict[str, torch.Tensor]
+    gaussint: Dict[str, torch.Tensor]
 
 class DependenceEstimator(VolumeEstimator):
+    def __init__(self, config: DependenceVolumeConfig):
+        super().__init__(config)
+        self.set_defaults()
+
     def set_defaults(self):
         if self.config.model_batch_size is None:
             self.config.model_batch_size = 1
@@ -33,6 +63,12 @@ class DependenceEstimator(VolumeEstimator):
             self.config.text_key2 = self.config.text_key
         if self.config.val_size2 is None:
             self.config.val_size2 = self.config.val_size
+        if self.config.text_key_ref is None:
+            self.config.text_key_ref = self.config.text_key
+        if self.config.val_size_ref is None:
+            self.config.val_size_ref = self.config.val_size
+        if self.config.dataset_ref is None:
+            raise ValueError("dataset_ref must be provided for dependence estimation")
 
     def _prepare_dataset(self, dataset, text_key: str, val_size: int):
         if self.config.chunking:
@@ -70,6 +106,7 @@ class DependenceEstimator(VolumeEstimator):
         self.tokenizer = self.config.tokenizer
         self.dataset1 = self.config.dataset
         self.dataset2 = self.config.dataset2
+        self.dataset_ref = self.config.dataset_ref
         self.model.eval()
         self.model.to("cuda")
 
@@ -94,8 +131,9 @@ class DependenceEstimator(VolumeEstimator):
 
         self.val_data1, self.probs_p1 = self._prepare_dataset(self.dataset1, self.config.text_key, self.config.val_size)
         self.val_data2, self.probs_p2 = self._prepare_dataset(self.dataset2, self.config.text_key2, self.config.val_size2)
+        self.val_data_ref, self.probs_p_ref = self._prepare_dataset(self.dataset_ref, self.config.text_key_ref, self.config.val_size_ref)
 
-        def kl_fn_factory(val_data, probs_p):
+        def kl_fn_factory(val_data, probs_p, multiplier=1):
             def kl_fn(a, b):
                 params_q = a + b if not self.config.implicit_vectors else a
                 kl_sum = 0.0
@@ -130,22 +168,32 @@ class DependenceEstimator(VolumeEstimator):
                 if self.config.l2_reg:
                     b_sq = (b @ b) if b is not None else 0
                     l2_term = 0.5 * self.config.l2_reg * b_sq
-                return kl_term + l2_term
+                return kl_term * multiplier + l2_term
             return kl_fn
 
-        self.kl_fn1 = kl_fn_factory(self.val_data1, self.probs_p1)
-        self.kl_fn2 = kl_fn_factory(self.val_data2, self.probs_p2)
+        self.kl_fn_ref = kl_fn_factory(self.val_data_ref, self.probs_p_ref, multiplier=self.config.scale_ref)
+
+        def kl_fn1(a, b):
+            kl_fn1 = kl_fn_factory(self.val_data1, self.probs_p1)
+            return torch.maximum(kl_fn1(a, b), self.kl_fn_ref(a, b))
+        self.kl_fn1_ref = kl_fn1
+
+        def kl_fn2(a, b):
+            kl_fn2 = kl_fn_factory(self.val_data2, self.probs_p2)
+            return torch.maximum(kl_fn2(a, b), self.kl_fn_ref(a, b))
+        self.kl_fn2_ref = kl_fn2
 
         def kl_fn_joint(a, b):
-            loss1 = self.kl_fn1(a, b)
-            loss2 = self.kl_fn2(a, b)
+            loss1 = self.kl_fn1_ref(a, b)
+            loss2 = self.kl_fn2_ref(a, b)
             return torch.maximum(loss1, loss2)
         self.kl_fn_joint = kl_fn_joint
 
         self.kl_fns = {
             'joint': self.kl_fn_joint,
-            'marginal1': self.kl_fn1,
-            'marginal2': self.kl_fn2,
+            'marginal1': self.kl_fn1_ref,
+            'marginal2': self.kl_fn2_ref,
+            'ref': self.kl_fn_ref,
         }
 
     def load_adam_vector(self):
@@ -180,5 +228,5 @@ class DependenceEstimator(VolumeEstimator):
             props = {k: results[k].props for k in self.kl_fns.keys()},
             mults = {k: results[k].mults for k in self.kl_fns.keys()},
             deltas = {k: results[k].deltas for k in self.kl_fns.keys()},
-            logabsint = {k: results[k].logabsint for k in self.kl_fns.keys()},
+            gaussint = {k: results[k].gaussint for k in self.kl_fns.keys()},
         )

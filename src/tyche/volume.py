@@ -103,14 +103,6 @@ class VolumeResult:
     deltas: torch.Tensor
     gaussint: torch.Tensor
 
-@dataclass
-class DependenceResult:
-    estimates: Dict[str, torch.Tensor]
-    props: Dict[str, torch.Tensor]
-    mults: Dict[str, torch.Tensor]
-    deltas: Dict[str, torch.Tensor]
-    logabsint: Dict[str, torch.Tensor]
-
 def get_estimates_vectorized_gauss(n, 
                                    sigma,
                                    *,

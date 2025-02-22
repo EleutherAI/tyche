@@ -19,7 +19,7 @@ def load_pythia_checkpoint(step, model_name="14m"):
 def load_pythia_checkpoint_states(step, model_name="14m"):
     """Load the checkpoint states from disk for a given step."""
     with open(f"/mnt/hdd-0/tiny-pythia/ckpts/pythia-{model_name}/global_step{step}/mp_rank_00_model_states.pt", "rb") as f:
-        return torch.load(f)
+        return torch.load(f, weights_only=False)
     
 def load_pythia_val_data(tokenizer, n_seqs=10):
     """Load the validation data from disk."""

@@ -33,6 +33,7 @@ class VolumeConfig:
     tqdm: bool = True
     debug: bool = False
     reduction: Optional[Literal["mean"]] = "mean" # Reduction over the batch dimension
+    iters: int = 10
 
     # Model-specific parameters
     model_type: Literal["causal", "pythia", "convnext", "mlp"] = "causal"
@@ -129,6 +130,7 @@ class VolumeEstimator(ABC):
             cutoff=self.config.cutoff,
             with_tqdm=self.config.tqdm,
             debug=self.config.debug,
+            iters=self.config.iters,
         )
     
     @classmethod
@@ -315,6 +317,9 @@ class PythiaEstimator(VolumeEstimator):
             self.config.sigma = 0.03997834
 
     def setup_model(self):
+        if self.config.implicit_vectors:
+            raise NotImplementedError("Implicit vectors not yet supported for Pythia")
+        
         # Load tokenizer and model
         self.tokenizer = AutoTokenizer.from_pretrained(f"EleutherAI/pythia-{self.config.model_name}")
         self.tokenizer.pad_token_id = 1
@@ -352,7 +357,11 @@ class PythiaEstimator(VolumeEstimator):
             kl_all = torch.nn.functional.kl_div(logprobs_q, probs_p, reduction="none").sum(dim=-1)
             mask = self.val_data != self.tokenizer.pad_token_id
             kl_term = torch.mean(kl_all[mask])
-            l2_term = 1/2 * self.config.l2_reg * torch.sum(b**2)
+            if self.config.l2_reg:
+                b_sq = b @ b if b else 0
+                l2_term = 1/2 * self.config.l2_reg * b_sq
+            else:
+                l2_term = 0
             return kl_term + l2_term
             
         self.kl_fn = kl_fn
@@ -384,6 +393,9 @@ class ConvNextEstimator(VolumeEstimator):
             self.config.split = "val"
 
     def setup_model(self):
+        if self.config.implicit_vectors:
+            raise NotImplementedError("Implicit vectors not yet supported for ConvNext")
+        
         # Load model checkpoint
         self.model = load_convnext_checkpoint(
             f"{BASIN_VOLUME_DIR}/runs/{self.config.model_name}/checkpoint-{self.config.checkpoint_step}"
@@ -418,7 +430,11 @@ class ConvNextEstimator(VolumeEstimator):
             logprobs_q = torch.nn.functional.log_softmax(logits_q, dim=-1)
             # equivalent to batchmean but written out for easy comparison
             kl_term = torch.nn.functional.kl_div(logprobs_q, probs_p, reduction="none").sum(dim=-1).mean()
-            l2_term = 1/2 * self.config.l2_reg * torch.sum(b**2)
+            if self.config.l2_reg:
+                b_sq = b @ b if b else 0
+                l2_term = 1/2 * self.config.l2_reg * b_sq
+            else:
+                l2_term = 0
             return kl_term + l2_term
             
         self.kl_fn = kl_fn

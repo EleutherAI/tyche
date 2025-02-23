@@ -4,12 +4,8 @@ import pickle
 import os
 import argparse
 import gc
-import jax
 
 BASIN_VOLUME_DIR = "/mnt/ssd-1/adam/basin-volume"
-
-RESULTS_DIR = os.path.join(BASIN_VOLUME_DIR, "results_tuesday")
-os.makedirs(RESULTS_DIR, exist_ok=True)
 
 
 def pythia_histo(testing=False, adam=False):
@@ -71,7 +67,6 @@ def pythia_cutoff(testing=False, adam=False, eps=1e-5):
 
         # Clear memory before each iteration
         gc.collect()
-        jax.clear_caches()
 
         cfg.cutoff = cutoff
         result = ve.run()
@@ -93,6 +88,7 @@ def convnext_cutoff(testing=False, adam=False, poison=False, eps=1e-5):
                         n_samples=1 if testing else 100,
                         preconditioner_type="adam" if adam else None,
                         preconditioner_eps=eps,
+                        iters=100,
                         )
 
     cutoffs = np.array(logspace(1e-6, 1e2, 9))
@@ -107,7 +103,6 @@ def convnext_cutoff(testing=False, adam=False, poison=False, eps=1e-5):
 
         # Clear memory before each iteration
         gc.collect()
-        jax.clear_caches()
 
         cfg.cutoff = cutoff
         result = ve.run()
@@ -147,7 +142,6 @@ def pythia_chkpts(testing=False, adam=False):
 
         # Clear memory before each iteration
         gc.collect()
-        jax.clear_caches()
 
         cfg.checkpoint_step = step
         ve = VolumeEstimator.from_config(cfg)
@@ -184,7 +178,6 @@ def convnext_chkpts(testing=False, adam=False, poison=False):
 
         # Clear memory before each iteration
         gc.collect()
-        jax.clear_caches()
 
         cfg.checkpoint_step = step
         ve = VolumeEstimator.from_config(cfg)
@@ -221,7 +214,6 @@ def pythia_exponent(testing=False, adam=False, eps=1e-5):
 
         # Clear memory before each iteration
         gc.collect()
-        jax.clear_caches()
 
         cfg.preconditioner_exponent = exponent
         ve.set_preconditioner()
@@ -258,7 +250,6 @@ def convnext_exponent(testing=False, adam=False, poison=False, eps=1e-5):
 
         # Clear memory before each iteration
         gc.collect()
-        jax.clear_caches()
 
         cfg.preconditioner_exponent = exponent
         ve.set_preconditioner()
@@ -313,7 +304,15 @@ if __name__ == "__main__":
     parser.add_argument("--poison", action="store_true")
     parser.add_argument("--eps", type=float, default=1e-5)
     parser.add_argument("--cutoff", type=float, default=1e-2)
+    parser.add_argument("--results-dir", type=str, 
+                       default=os.path.join(BASIN_VOLUME_DIR, "results_default"),
+                       help="Directory to store results")
     args = parser.parse_args()
+
+    # Set up results directory
+    RESULTS_DIR = args.results_dir
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+
     match args.target:
         case "pythia_histo":
             pythia_histo(args.test, args.adam)

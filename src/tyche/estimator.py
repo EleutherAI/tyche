@@ -62,6 +62,8 @@ class VolumeConfig:
     preconditioner_exponent: float = 0.5
     adam_order: int = 2  # 1 for exp_avg, 2 for exp_avg_sq
 
+    last_token_only: bool = False
+
 class VolumeEstimator(ABC):
     def __init__(self, config: VolumeConfig):
         self.config = config
@@ -242,19 +244,21 @@ class CausalLMEstimator(VolumeEstimator):
             else:
                 raise ValueError(f"Invalid reduction: {self.config.reduction}")
             # Process one batch at a time
+
+            selection = slice(None) if not self.config.last_token_only else slice(-1)
             for i in range(0, self.val_data.shape[0], self.config.data_batch_size):
                 seqs = self.val_data[i:i+self.config.data_batch_size]
                 if self.config.implicit_vectors:
                     if b:
                         a.add_(compute_multiplier(b, mults, i))
-                    logits_q = self.apply_fn(a, seqs)
+                    logits_q = self.apply_fn(a, seqs)[..., selection]
                     if b:
                         a.sub_(compute_multiplier(b, mults, i))
                 else:
                     if mults and mults.shape[0] == self.val_data.shape[0]:
                         b = compute_multiplier(b, mults, i)
                         params_q = a + b
-                    logits_q = self.apply_fn(params_q, seqs)
+                    logits_q = self.apply_fn(params_q, seqs)[..., selection]
                 logprobs_q = torch.nn.functional.log_softmax(logits_q, dim=-1)
                 
                 if self.config.cache_mode is None:

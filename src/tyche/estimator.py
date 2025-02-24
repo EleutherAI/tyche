@@ -401,22 +401,37 @@ class PythiaEstimator(VolumeEstimator):
         if self.config.dataset2 is not None:
             self.val_data2, self.probs_p2 = self._prepare_dataset(self.config.dataset2, self.config.text_key2, self.config.val_size2)
 
-        def kl_fn_factory(val_data, probs):
+        def kl_fn_factory(val_data, probs, multiplier=1):
             def kl_fn(a, b):
                 if not isinstance(b, torch.Tensor):
                     b = torch.tensor(b)
                 params_q = a + b
-                logits_q = self.apply_fn(params_q, val_data)
-                logprobs_q = torch.nn.functional.log_softmax(logits_q, dim=-1)
-                kl_all = torch.nn.functional.kl_div(logprobs_q, probs, reduction="none").sum(dim=-1)
-                mask = val_data != self.tokenizer.pad_token_id
-                kl_term = torch.mean(kl_all[mask])
+                kl_sum = 0.0
+                count = 0
+                for i in range(0, val_data.shape[0], self.config.data_batch_size):
+                    seqs = val_data[i:i+self.config.data_batch_size]
+                    logits_q = self.apply_fn(params_q, seqs)
+                    logprobs_q = torch.nn.functional.log_softmax(logits_q, dim=-1)
+                    if self.config.cache_mode is None:
+                        logits_p = self.apply_fn(self.params, seqs)
+                        probs_p_seq = torch.nn.functional.softmax(logits_p, dim=-1)
+                    elif self.config.cache_mode == "cpu":
+                        probs_p_seq = probs[i:i+self.config.data_batch_size].to("cuda")
+                    elif self.config.cache_mode == "gpu":
+                        probs_p_seq = probs[i:i+self.config.data_batch_size]
+                    else:
+                        raise ValueError(f"Invalid cache mode: {self.config.cache_mode}")
+                    kl_seq = torch.nn.functional.kl_div(logprobs_q, probs_p_seq, reduction="none").sum(dim=-1)
+                    mask = seqs != self.tokenizer.pad_token_id
+                    kl_sum += torch.sum(kl_seq[mask])
+                    count += torch.sum(mask)
+                kl_term = kl_sum / count
                 if self.config.l2_reg:
                     b_sq = b @ b if b else 0
                     l2_term = 0.5 * self.config.l2_reg * b_sq
                 else:
                     l2_term = 0
-                    return kl_term + l2_term
+                return kl_term * multiplier + l2_term
             return kl_fn
 
         if self.config.dataset is None and self.config.dataset2 is None:
@@ -424,7 +439,7 @@ class PythiaEstimator(VolumeEstimator):
         elif self.config.dataset is not None and self.config.dataset2 is not None:
             # Process datasets
             print(probs_pref, self.probs_p, self.probs_p2)
-            kl_fn_ref = kl_fn_factory(self.val_data_ref, probs_pref)
+            kl_fn_ref = kl_fn_factory(self.val_data_ref, probs_pref, multiplier=self.config.scale_ref)
             kl_fn_1_base = kl_fn_factory(self.val_data, self.probs_p)
             kl_fn_2_base = kl_fn_factory(self.val_data2, self.probs_p2)
             kl_fn1 = lambda a, b: torch.maximum(kl_fn_1_base(a, b), kl_fn_ref(a, b))

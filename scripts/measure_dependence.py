@@ -23,19 +23,19 @@ def generate_random_tokens(n_samples: int = 50, length: int = 50) -> Dataset:
 
 TASK_TO_DATASET = {
     "anthropic_hh": ("Anthropic/hh-rlhf", None, "train", "text"),
-    "smoltalk": ("HuggingFaceTB/smoltalk", None, "train", "text"),
+    "smoltalk": ("HuggingFaceTB/smoltalk", "everyday-conversations", "train", "text"),
     "finemath": ("HuggingFaceTB/finemath", "finemath-3plus", "train", "text"),
-    "gsm8k": ("gsm8k", None, "train", "question"),
+    "gsm8k": ("gsm8k", "main", "train", "question"),
     "mmlu": ("cais/mmlu", None, "auxiliary_train", "question"),
     "truthful_qa": ("truthfulqa/truthful_qa", "generation", "validation", "question"),
-    "bbq": ("elfsong/bbq", None, "age", "question"),
+    "bbq": ("elfsong/bbq", None, None, "question"),
     "xsum": ("EdinburghNLP/xsum", None, "train", "document"),
     "code_search_net": ("Nan-Do/code-search-net-python", None, "train", "docstring"),
-    "ethics": ("hendrycks/ethics", "commonsense", "train", "text"),
+    "ethics": ("hendrycks/ethics", "commonsense", "train", "input"),
     "flores": ("facebook/flores", None, "dev", "sentence"),
     "chatgpt_prompts": ("fka/awesome-chatgpt-prompts", None, "train", "prompt"),
-    "natural_reasoning": ("facebook/natural_reasoning", None, "train", "text"),
-    "ui_reasoning": ("smirki/UI_Reasoning_Dataset", None, "train", "text"),
+    "natural_reasoning": ("facebook/natural_reasoning", None, "train", "question"),
+    "ui_reasoning": ("smirki/UI_Reasoning_Dataset", None, "train", "question"),
     "lambada": ("EleutherAI/lambada_openai", None, "test", "text"),
     "quirky_alice": ("EleutherAI/quirky_hemisphere_alice", None, "test", "statement")
 }
@@ -47,6 +47,13 @@ def load_task_dataset(task_name: str) -> tuple[Dataset, str]:
     
     dataset_name, subset, split, text_key = TASK_TO_DATASET[task_name]
     try:
+        # Special case for bbq dataset which is a DatasetDict with multiple splits
+        if dataset_name == "elfsong/bbq" and split is None:
+            dataset_dict = load_dataset(dataset_name)
+            # Use 'age' split as default
+            dataset = dataset_dict['age']
+            return dataset, text_key
+        
         if subset is not None:
             dataset = load_dataset(dataset_name, subset, split=split)
         else:

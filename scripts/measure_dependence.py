@@ -263,6 +263,7 @@ def main():
     ref_dataset, text_key_ref = load_reference_dataset(args.ref_type, args.ref_task)
     
     model_type = 'causal' if args.model_family == 'smollm2' else 'pythia'
+    implicit_vectors = model_type == 'causal'
     # Configure estimator
     cfg = VolumeConfig(
         model=model,
@@ -281,7 +282,7 @@ def main():
         preconditioner_type="adam" if args.use_preconditioner and args.model_family == "pythia" else None,
         preconditioner_eps=args.preconditioner_eps,
         preconditioner_exponent=args.preconditioner_exp,
-        implicit_vectors=True,
+        implicit_vectors=implicit_vectors,
         data_batch_size=1
     )
     

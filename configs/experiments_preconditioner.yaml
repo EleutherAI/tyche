@@ -1,89 +1,89 @@
 defaults:
-  n_samples: 50
-  val_size: 100
-  cache_mode: gpu
-  ref_type: random
-  model_family: pythia
-  model_size: 140m
-  ref_type: random
+  n-samples: 50
+  val-size: 100
+  cache-mode: cpu
+  ref-type: random
+  model-family: pythia
+  model-size: 14m
+  ref-type: random
 
 experiments:
   - name: ethics_bbq_preconditioned
     params:
       task1: ethics
       task2: bbq
-      use_preconditioner: true
+      use-preconditioner: true
 
   - name: ethics_bbq_no_preconditioner
     params:
       task1: ethics
       task2: bbq
-      use_preconditioner: false
+      use-preconditioner: false
 
   - name: finemath_gsm8k_preconditioned
     params:
       task1: finemath
       task2: gsm8k
-      use_preconditioner: true
+      use-preconditioner: true
 
   - name: finemath_gsm8k_no_preconditioner
     params:
       task1: finemath
       task2: gsm8k
-      use_preconditioner: false
+      use-preconditioner: false
 
   - name: hh_smoltalk_preconditioned
     params:
       task1: hh
       task2: smoltalk
-      use_preconditioner: true
+      use-preconditioner: true
 
 
   - name: hh_smoltalk_no_preconditioner
     params:
       task1: hh
       task2: smoltalk
-      use_preconditioner: false
+      use-preconditioner: false
 
 
   - name: ethics_bbq_pile_preconditioned
     params:
       task1: ethics
       task2: bbq
-      use_preconditioner: true
-      ref_type: pile
+      use-preconditioner: true
+      ref-type: null
 
   - name: ethics_bbq_pile_no_preconditioner
     params:
       task1: ethics
       task2: bbq
-      use_preconditioner: false
-      ref_type: pile
+      use-preconditioner: false
+      ref-type: null
 
   - name: finemath_gsm8k_pile_preconditioned
     params:
       task1: finemath
       task2: gsm8k
-      use_preconditioner: true
-      ref_type: pile
+      use-preconditioner: true
+      ref-type: null
 
   - name: finemath_gsm8k_pile_no_preconditioner
     params:
       task1: finemath
       task2: gsm8k
-      use_preconditioner: false
-      ref_type: pile
+      use-preconditioner: false
+      ref-type: null
 
   - name: hh_smoltalk_pile_preconditioned
     params:
       task1: hh
       task2: smoltalk
-      use_preconditioner: true
-      ref_type: pile
+      use-preconditioner: true
+      ref-type: null
 
   - name: hh_smoltalk_pile_no_preconditioner
     params:
       task1: hh
       task2: smoltalk
-      use_preconditioner: false
-      ref_type: pile
+      use-preconditioner: false
+      ref-type: null

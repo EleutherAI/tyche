@@ -34,14 +34,14 @@ experiments:
 
   - name: hh_smoltalk_preconditioned
     params:
-      task1: hh
+      task1: anthropic_hh
       task2: smoltalk
       use-preconditioner: true
 
 
   - name: hh_smoltalk_no_preconditioner
     params:
-      task1: hh
+      task1: anthropic_hh
       task2: smoltalk
       use-preconditioner: false
 
@@ -76,14 +76,14 @@ experiments:
 
   - name: hh_smoltalk_pile_preconditioned
     params:
-      task1: hh
+      task1: anthropic_hh
       task2: smoltalk
       use-preconditioner: true
       ref-type: none
 
   - name: hh_smoltalk_pile_no_preconditioner
     params:
-      task1: hh
+      task1: anthropic_hh
       task2: smoltalk
       use-preconditioner: false
       ref-type: none

@@ -28,7 +28,7 @@ TASK_TO_DATASET = {
     "gsm8k": ("gsm8k", None, "train", "question"),
     "mmlu": ("cais/mmlu", None, "auxiliary_train", "question"),
     "truthful_qa": ("truthfulqa/truthful_qa", "generation", "validation", "question"),
-    "bbq": ("elfsong/bbq", None, "train", "question"),
+    "bbq": ("elfsong/bbq", None, "age", "question"),
     "xsum": ("EdinburghNLP/xsum", None, "train", "document"),
     "code_search_net": ("Nan-Do/code-search-net-python", None, "train", "docstring"),
     "ethics": ("hendrycks/ethics", "commonsense", "train", "text"),

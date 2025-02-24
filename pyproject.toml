@@ -21,5 +21,6 @@ dependencies = [
 	"transformers",
 	"datasets",
 	"torchvision",
-	"pytest"
+	"pytest",
+	"pyyaml"
 ]

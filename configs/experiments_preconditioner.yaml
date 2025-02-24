@@ -51,39 +51,39 @@ experiments:
       task1: ethics
       task2: bbq
       use-preconditioner: true
-      ref-type: null
+      ref-type: none
 
   - name: ethics_bbq_pile_no_preconditioner
     params:
       task1: ethics
       task2: bbq
       use-preconditioner: false
-      ref-type: null
+      ref-type: none
 
   - name: finemath_gsm8k_pile_preconditioned
     params:
       task1: finemath
       task2: gsm8k
       use-preconditioner: true
-      ref-type: null
+      ref-type: none
 
   - name: finemath_gsm8k_pile_no_preconditioner
     params:
       task1: finemath
       task2: gsm8k
       use-preconditioner: false
-      ref-type: null
+      ref-type: none
 
   - name: hh_smoltalk_pile_preconditioned
     params:
       task1: hh
       task2: smoltalk
       use-preconditioner: true
-      ref-type: null
+      ref-type: none
 
   - name: hh_smoltalk_pile_no_preconditioner
     params:
       task1: hh
       task2: smoltalk
       use-preconditioner: false
-      ref-type: null
+      ref-type: none

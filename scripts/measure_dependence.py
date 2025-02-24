@@ -24,14 +24,13 @@ def generate_random_tokens(n_samples: int = 50, length: int = 50) -> Dataset:
 TASK_TO_DATASET = {
     "anthropic_hh": ("Anthropic/hh-rlhf", None, "chosen", "text"),
     "smoltalk": ("HuggingFaceTB/smoltalk", None, "train", "text"),
-    "finemath": ("HuggingFaceTB/finemath", None, "train", "text"),
+    "finemath": ("HuggingFaceTB/finemath", "finemath-3plus", "train", "text"),
     "gsm8k": ("gsm8k", None, "train", "question"),
     "mmlu": ("cais/mmlu", None, "auxiliary_train", "question"),
-    "winogrande": ("winogrande", None, "train", "sentence"),
-    "truthful_qa": ("truthful_qa", None, "validation", "question"),
-    "bbq": ("bbq", None, "train", "question"),
-    "xsum": ("xsum", None, "train", "document"),
-    "code_search_net": ("code_search_net", None, "train", "docstring"),
+    "truthful_qa": ("truthfulqa/truthful_qa", "generation", "validation", "question"),
+    "bbq": ("elfsong/bbq", None, "train", "question"),
+    "xsum": ("EdinburghNLP/xsum", None, "train", "document"),
+    "code_search_net": ("Nan-Do/code-search-net-python", None, "train", "docstring"),
     "ethics": ("hendrycks/ethics", "commonsense", "train", "text"),
     "flores": ("facebook/flores", None, "dev", "sentence"),
     "chatgpt_prompts": ("fka/awesome-chatgpt-prompts", None, "train", "prompt"),
@@ -56,10 +55,13 @@ def load_task_dataset(task_name: str) -> tuple[Dataset, str]:
     except Exception as e:
         raise RuntimeError(f"Failed to load dataset {dataset_name}: {e}")
 
-def load_reference_dataset(ref_type: Literal["random", "pile", "task"], 
+def load_reference_dataset(ref_type: Optional[Literal["random", "pile", "task"]], 
                          task_name: Optional[str] = None,
-                         n_samples: int = 50) -> tuple[Dataset, str]:
+                         n_samples: int = 50) -> Optional[tuple[Dataset, str]]:
     """Load a reference dataset."""
+    if ref_type is None or ref_type.lower() == "none":
+        return None
+        
     if ref_type == "random":
         return generate_random_tokens(n_samples), "text"
     elif ref_type == "pile":
@@ -213,8 +215,8 @@ def main():
     
     # Reference dataset configuration
     ref_group = parser.add_argument_group("Reference Dataset")
-    ref_group.add_argument("--ref-type", choices=["random", "pile", "task", None], default="random",
-                        help="Type of reference dataset to use")
+    ref_group.add_argument("--ref-type", type=str, choices=["random", "pile", "task", "none"],
+                        default="random", help="Type of reference dataset to use ('none' for no reference)")
     ref_group.add_argument("--ref-task", choices=list(TASK_TO_DATASET.keys()),
                         help="Reference task (if ref-type is 'task')")
     
@@ -268,7 +270,12 @@ def main():
     print(f"Loading task datasets")
     dataset1, text_key1 = load_task_dataset(args.task1)
     dataset2, text_key2 = load_task_dataset(args.task2)
-    ref_dataset, text_key_ref = load_reference_dataset(args.ref_type, args.ref_task)
+    
+    ref_result = load_reference_dataset(args.ref_type.lower() if args.ref_type else None, args.ref_task)
+    if ref_result is not None:
+        ref_dataset, text_key_ref = ref_result
+    else:
+        ref_dataset, text_key_ref = None, None
     
     model_type = 'causal' if args.model_family == 'smollm2' else 'pythia'
     implicit_vectors = model_type == 'causal'

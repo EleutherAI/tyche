@@ -22,23 +22,23 @@ def generate_random_tokens(n_samples: int = 50, length: int = 50) -> Dataset:
     return Dataset.from_dict(data)
 
 TASK_TO_DATASET = {
-    "anthropic_hh": ("Anthropic/hh-rlhf", "chosen", "text"),
-    "smoltalk": ("HuggingFaceTB/smoltalk", "train", "text"),
-    "finemath": ("HuggingFaceTB/finemath", "train", "text"),
-    "gsm8k": ("gsm8k", "train", "question"),
-    "mmlu": ("cais/mmlu", "auxiliary_train", "question"),
-    "winogrande": ("winogrande", "train", "sentence"),
-    "truthful_qa": ("truthful_qa", "validation", "question"),
-    "bbq": ("bbq", "train", "question"),
-    "xsum": ("xsum", "train", "document"),
-    "code_search_net": ("code_search_net", "train", "docstring"),
-    "ethics": ("hendrycks/ethics", "commonsense/train", "text"),
-    "flores": ("facebook/flores", "dev", "sentence"),
-    "chatgpt_prompts": ("fka/awesome-chatgpt-prompts", "train", "prompt"),
-    "natural_reasoning": ("facebook/natural_reasoning", "train", "text"),
-    "ui_reasoning": ("smirki/UI_Reasoning_Dataset", "train", "text"),
-    "lambada": ("EleutherAI/lambada_openai", "test", "text"),
-    "quirky_alice": ("EleutherAI/quirky_hemisphere_alice", "test", "statement")
+    "anthropic_hh": ("Anthropic/hh-rlhf", None, "chosen", "text"),
+    "smoltalk": ("HuggingFaceTB/smoltalk", None, "train", "text"),
+    "finemath": ("HuggingFaceTB/finemath", None, "train", "text"),
+    "gsm8k": ("gsm8k", None, "train", "question"),
+    "mmlu": ("cais/mmlu", None, "auxiliary_train", "question"),
+    "winogrande": ("winogrande", None, "train", "sentence"),
+    "truthful_qa": ("truthful_qa", None, "validation", "question"),
+    "bbq": ("bbq", None, "train", "question"),
+    "xsum": ("xsum", None, "train", "document"),
+    "code_search_net": ("code_search_net", None, "train", "docstring"),
+    "ethics": ("hendrycks/ethics", "commonsense", "train", "text"),
+    "flores": ("facebook/flores", None, "dev", "sentence"),
+    "chatgpt_prompts": ("fka/awesome-chatgpt-prompts", None, "train", "prompt"),
+    "natural_reasoning": ("facebook/natural_reasoning", None, "train", "text"),
+    "ui_reasoning": ("smirki/UI_Reasoning_Dataset", None, "train", "text"),
+    "lambada": ("EleutherAI/lambada_openai", None, "test", "text"),
+    "quirky_alice": ("EleutherAI/quirky_hemisphere_alice", None, "test", "statement")
 }
 
 def load_task_dataset(task_name: str) -> tuple[Dataset, str]:
@@ -46,9 +46,12 @@ def load_task_dataset(task_name: str) -> tuple[Dataset, str]:
     if task_name not in TASK_TO_DATASET:
         raise ValueError(f"Unknown task {task_name}. Available tasks: {list(TASK_TO_DATASET.keys())}")
     
-    dataset_name, split, text_key = TASK_TO_DATASET[task_name]
+    dataset_name, subset, split, text_key = TASK_TO_DATASET[task_name]
     try:
-        dataset = load_dataset(dataset_name, split=split)
+        if subset is not None:
+            dataset = load_dataset(dataset_name, subset, split=split)
+        else:
+            dataset = load_dataset(dataset_name, split=split)
         return dataset, text_key
     except Exception as e:
         raise RuntimeError(f"Failed to load dataset {dataset_name}: {e}")
@@ -210,7 +213,7 @@ def main():
     
     # Reference dataset configuration
     ref_group = parser.add_argument_group("Reference Dataset")
-    ref_group.add_argument("--ref-type", choices=["random", "pile", "task"], default="random",
+    ref_group.add_argument("--ref-type", choices=["random", "pile", "task", None], default="random",
                         help="Type of reference dataset to use")
     ref_group.add_argument("--ref-task", choices=list(TASK_TO_DATASET.keys()),
                         help="Reference task (if ref-type is 'task')")

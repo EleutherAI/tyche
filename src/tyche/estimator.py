@@ -384,12 +384,6 @@ class PythiaEstimator(VolumeEstimator):
         trained_params_t = torch.nn.utils.parameters_to_vector(self.model.parameters()).detach()
         self.params = trained_params_t
         
-        # Primary validation data
-        if not self.config.dataset_ref:
-            self.val_data_ref = load_pythia_val_data(self.tokenizer, n_seqs=self.config.val_size)
-        else:
-            self.val_data_ref, probs_pref = self._prepare_dataset(self.config.dataset_ref, self.config.text_key_ref, self.config.val_size_ref)
-
         # Set up apply_fn and kl_fn
         def apply_fn(params, x):
             params_t = torch.from_dlpack(params)
@@ -397,6 +391,13 @@ class PythiaEstimator(VolumeEstimator):
             return self.model(x).logits.detach()
             
         self.apply_fn = apply_fn
+
+        # Primary validation data
+        if not self.config.dataset_ref:
+            self.val_data_ref = load_pythia_val_data(self.tokenizer, n_seqs=self.config.val_size)
+        else:
+            self.val_data_ref, probs_pref = self._prepare_dataset(self.config.dataset_ref, self.config.text_key_ref, self.config.val_size_ref)
+
         
         logits_pref = self.apply_fn(self.params, self.val_data_ref)
         probs_pref = torch.nn.functional.softmax(logits_pref, dim=-1)

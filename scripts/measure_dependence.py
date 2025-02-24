@@ -22,7 +22,7 @@ def generate_random_tokens(n_samples: int = 50, length: int = 50) -> Dataset:
     return Dataset.from_dict(data)
 
 TASK_TO_DATASET = {
-    "anthropic_hh": ("Anthropic/hh-rlhf", None, "chosen", "text"),
+    "anthropic_hh": ("Anthropic/hh-rlhf", None, "train", "text"),
     "smoltalk": ("HuggingFaceTB/smoltalk", None, "train", "text"),
     "finemath": ("HuggingFaceTB/finemath", "finemath-3plus", "train", "text"),
     "gsm8k": ("gsm8k", None, "train", "question"),

@@ -280,7 +280,9 @@ def main():
         checkpoint_step=args.checkpoint_step if args.model_family == "pythia" else None,
         preconditioner_type="adam" if args.use_preconditioner and args.model_family == "pythia" else None,
         preconditioner_eps=args.preconditioner_eps,
-        preconditioner_exponent=args.preconditioner_exp
+        preconditioner_exponent=args.preconditioner_exp,
+        implicit_vectors=True,
+        data_batch_size=1
     )
     
     # Run estimation

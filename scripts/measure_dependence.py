@@ -232,11 +232,16 @@ def main():
                            help="Epsilon for ADAM preconditioner")
     pythia_group.add_argument("--preconditioner-exp", type=float, default=0.5,
                            help="Exponent for ADAM preconditioner")
+
+    misc_group = parser.add_argument_group("Miscellaneous")
+    misc_group.add_argument("--ignore-commit-check", action="store_true",
+                           help="Ignore git commit check")
     
     args = parser.parse_args()
     
     # Check git status
-    check_git_status()
+    if not args.ignore_commit_check:
+        check_git_status()
     
     # Record the command used
     command = f"python {' '.join(sys.argv)}"
@@ -283,7 +288,8 @@ def main():
         preconditioner_eps=args.preconditioner_eps,
         preconditioner_exponent=args.preconditioner_exp,
         implicit_vectors=implicit_vectors,
-        data_batch_size=1
+        data_batch_size=1,
+        tol=1
     )
     
     # Run estimation

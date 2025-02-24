@@ -331,6 +331,10 @@ class PythiaEstimator(VolumeEstimator):
             self.config.preconditioner_exponent = 0.5
         if self.config.sigma is None:
             self.config.sigma = 0.03997834
+        if self.config.val_size_ref is None:
+            self.config.val_size_ref = self.config.val_size
+        if self.config.val_size2 is None:
+            self.config.val_size2 = self.config.val_size
 
     def _prepare_dataset(self, dataset, text_key: str, val_size: int):
         dataset = dataset[:self.config.max_seqs_per_dataset]
@@ -381,9 +385,10 @@ class PythiaEstimator(VolumeEstimator):
         self.params = trained_params_t
         
         # Primary validation data
-        self.val_data_ref = load_pythia_val_data(self.tokenizer, n_seqs=self.config.val_size)
-
-  
+        if not self.config.dataset_ref:
+            self.val_data_ref = load_pythia_val_data(self.tokenizer, n_seqs=self.config.val_size)
+        else:
+            self.val_data_ref, probs_pref = self._prepare_dataset(self.config.dataset_ref, self.config.text_key_ref, self.config.val_size_ref)
 
         # Set up apply_fn and kl_fn
         def apply_fn(params, x):
@@ -438,7 +443,6 @@ class PythiaEstimator(VolumeEstimator):
             self.kl_fns = {"ref": kl_fn_factory(self.val_data_ref, probs_pref)}
         elif self.config.dataset is not None and self.config.dataset2 is not None:
             # Process datasets
-            print(probs_pref, self.probs_p, self.probs_p2)
             kl_fn_ref = kl_fn_factory(self.val_data_ref, probs_pref, multiplier=self.config.scale_ref)
             kl_fn_1_base = kl_fn_factory(self.val_data, self.probs_p)
             kl_fn_2_base = kl_fn_factory(self.val_data2, self.probs_p2)

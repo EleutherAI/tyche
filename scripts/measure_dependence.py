@@ -23,7 +23,7 @@ def generate_random_tokens(n_samples: int = 50, length: int = 50) -> Dataset:
 
 TASK_TO_DATASET = {
     "anthropic_hh": ("Anthropic/hh-rlhf", None, "train", "text"),
-    "smoltalk": ("HuggingFaceTB/smoltalk", "everyday-conversations", "train", "text"),
+    "smoltalk": ("HuggingFaceTB/smoltalk", "everyday-conversations", "train", "messages"),
     "finemath": ("HuggingFaceTB/finemath", "finemath-3plus", "train", "text"),
     "gsm8k": ("gsm8k", "main", "train", "question"),
     "mmlu": ("cais/mmlu", None, "auxiliary_train", "question"),

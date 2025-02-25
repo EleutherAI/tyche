@@ -35,7 +35,6 @@ def find_radius_vectorized(center, vecs, cutoff, fn, *,
         - The actual function evaluation is not vectorized (difficult in Torch)
         - Assumes `fn` is monotonic (but often works even if it isn't)
         - The basin radius is mults * norm(vecs), not mults
-        - Fails silently if `iters` is reached (TODO: raise an error?)
     """
     # number of direction vectors
     batch_size = len(vecs)

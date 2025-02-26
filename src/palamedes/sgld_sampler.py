@@ -1,10 +1,14 @@
 from dataclasses import dataclass
+import datetime
+import json
+import os
 from typing import List, Optional
 from jaxtyping import Float
 from torch import Tensor
 import torch as t
 import copy
 from tqdm import tqdm
+from tyche.convnext import load_cifar10_splits_dict, load_convnext_checkpoint
 
 
 @dataclass
@@ -20,6 +24,8 @@ class SGLDParams:
     )
     num_steps: int = 1
     batch_size: int = 128  # batch size
+    checkpoint_every: Optional[int] = None  # checkpoint every n steps
+    save_dir: Optional[str] = None  # directory to save checkpoints
 
 
 def logit_loss(
@@ -46,6 +52,7 @@ def sgld(
     sgld_dict["loss"] = []
     sgld_dict["L2_norm"] = []
     sgld_dict["L2_distance_init"] = []
+    save_dir = sgld_params.save_dir
 
     model = copy.deepcopy(model)
 
@@ -60,7 +67,21 @@ def sgld(
 
         logits_init = model(dataset[0])["logits"]
 
+    if save_dir is None and sgld_params.checkpoint_every:
+        model_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        save_dir = "/mnt/ssd-1/louis/palamedes/sgld_samples/" + model_time
+        os.makedirs(save_dir, exist_ok=True)
+        t.save(w_init, f"{save_dir}/model_0.pt")
+        print(f"Saving to {save_dir}")
+
     for _ in range(sgld_params.num_steps):
+
+        if (
+            sgld_params.checkpoint_every
+            and _ % sgld_params.checkpoint_every == 0
+            and _ > 0
+        ):
+            t.save(w, f"{save_dir}/model_{_}.pt")
 
         model.zero_grad()
 
@@ -71,7 +92,7 @@ def sgld(
         logits = model(inputs)["logits"]
 
         if cost_fn == "KL":
-            cost = logit_loss(logits_init, logits)
+            cost = logit_loss(logits_init[indices], logits)
         elif cost_fn == "cross_entropy":
             cost = t.nn.functional.cross_entropy(logits, labels)
         sgld_dict["loss"].append(cost.item())
@@ -111,3 +132,51 @@ def sgld(
                 print("Cost is NaN, returning")
                 return sgld_dict
     return sgld_dict
+
+
+if __name__ == "__main__":
+
+    device = t.device("cuda:7" if t.cuda.is_available() else "cpu")
+
+    cifar10_ds = load_cifar10_splits_dict(size=10000, device=device)
+
+    val_ds = cifar10_ds["val"].to(device)
+    clean_ds = cifar10_ds["clean"].to(device)
+    poisoned_ds = cifar10_ds["poison"].to(device)
+    val_ds_labels = cifar10_ds["val_labels"].to(device)
+    clean_ds_labels = cifar10_ds["clean_labels"].to(device)
+    poisoned_ds_labels = cifar10_ds["poison_labels"].to(device)
+
+    params = SGLDParams(
+        eps=1e-4,
+        gamma=0,
+        nbeta=1000,
+        batch_size=512,
+        num_steps=10000,
+        checkpoint_every=100,
+    )
+
+    RUNS_DIR = "/mnt/ssd-1/adam/basin-volume/runs"
+
+    models_clean = [
+        load_convnext_checkpoint(
+            RUNS_DIR + f"/b16pai_p001/checkpoint-{2**(step+1)}", device=device
+        )
+        for step in range(16)
+    ]
+
+    model = models_clean[-1]
+
+    sgld_dict = sgld(
+        model,
+        params,
+        dataset=[val_ds, val_ds_labels],
+        cost_fn="KL",
+        device=device,
+    )
+
+    # save sgld_dict as json
+
+    with open("sgld_dict.json", "w") as f:
+        json.dump(sgld_dict, f)
+        f.close()

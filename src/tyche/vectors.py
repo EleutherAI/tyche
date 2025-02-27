@@ -82,7 +82,7 @@ class ImplicitRandomVector(ImplicitVector):
             for i in range(0, flat_param.numel(), self.block_size):
                 block_size = min(self.block_size, flat_param.numel() - i)
                 random_block = torch.randn(block_size, generator=generator, 
-                                         device=self.device)
+                                         device=self.device, dtype=param.dtype)
                 yield random_block
 
     @cached_property

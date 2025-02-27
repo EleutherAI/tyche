@@ -32,8 +32,23 @@ def plot_sgld_metric(
 
     # Set up plot
     hyperparams = cleaned_dicts[0]["params"]
-    title = f"eps={hyperparams.eps}, gamma={hyperparams.gamma}, nbeta={hyperparams.nbeta}, batch_size={hyperparams.batch_size}, num_steps={hyperparams.num_steps}"
-
+    # Format parameters with scientific notation if they're very small or large
+    eps_str = (
+        f"{hyperparams.eps:.1e}"
+        if abs(hyperparams.eps) >= 1000 or abs(hyperparams.eps) <= 0.001
+        else str(hyperparams.eps)
+    )
+    gamma_str = (
+        f"{hyperparams.gamma:.1e}"
+        if abs(hyperparams.gamma) >= 1000 or abs(hyperparams.gamma) <= 0.001
+        else str(hyperparams.gamma)
+    )
+    nbeta_str = (
+        f"{hyperparams.nbeta:.1e}"
+        if abs(hyperparams.nbeta) >= 1000 or abs(hyperparams.nbeta) <= 0.001
+        else str(hyperparams.nbeta)
+    )
+    title = f"eps={eps_str}, gamma={gamma_str}, nbeta={nbeta_str}, batch_size={hyperparams.batch_size}, num_steps={hyperparams.num_steps}"
     fig = plt.figure(figsize=(5, 3))
 
     # Plot data
@@ -96,11 +111,11 @@ def plot_sgld_sweep(
         # Construct folder path
         folder = f"{dir_path}/sgld_eps{e}_nbeta{n}_batch{batch_size}_steps{steps}_gamma{gamma}"
 
-        # Set title and labels regardless of data availability
-        if abs(e) >= 1000 or abs(n) >= 1000:
+        if abs(e) >= 1000 or abs(e) <= 0.001 or abs(n) >= 1000 or abs(n) <= 0.001:
             ax.set_title(f"eps={e:.1e}, nbeta={n:.1e}")
         else:
             ax.set_title(f"eps={e}, nbeta={n}")
+
         ax.set_xlabel("Epoch")
         ax.set_ylabel(metric)
 

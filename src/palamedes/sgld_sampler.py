@@ -26,6 +26,9 @@ class SGLDParams:
     batch_size: int = 128  # batch size
     checkpoint_every: Optional[int] = None  # checkpoint every n steps
     save_dir: Optional[str] = None  # directory to save checkpoints
+    preconditioner: str = "none"  # preconditioner to use, "none" or "rmsprop"
+    alpha_rmsprop: float = 0.99  # rmsprop alpha
+    lambda_rmsprop: float = 1e-5  # rmsprop eps
 
 
 def logit_loss(
@@ -38,6 +41,22 @@ def logit_loss(
     return (log_p.exp() * (log_p - log_q)).sum(dim=-1).mean()
 
 
+def rms_preconditioner(
+    gradient: Float[t.Tensor, " d_params"],
+    v_rmsprop: Float[t.Tensor, " d_params"],
+    sgld_params: SGLDParams,
+) -> Float[t.Tensor, " d_params"]:
+
+    v_rmsprop = (
+        sgld_params.alpha_rmsprop * v_rmsprop
+        + (1 - sgld_params.alpha_rmsprop) * gradient**2
+    )
+
+    preconditioner = 1 / (t.sqrt(v_rmsprop) + sgld_params.lambda_rmsprop)
+
+    return preconditioner, v_rmsprop
+
+
 def sgld(
     model,
     sgld_params: SGLDParams,
@@ -47,6 +66,7 @@ def sgld(
 ):
     """Run SGLD on the model using the given dataset and cost function."""
 
+    # Record metrics
     sgld_dict = {}
     sgld_dict["params"] = sgld_params
     sgld_dict["loss"] = []
@@ -66,6 +86,9 @@ def sgld(
         )
 
         logits_init = model(dataset[0])["logits"]
+
+        preconditioner = t.ones_like(w_init, device=device)
+        v_rmsprop = t.zeros_like(w_init, device=device)
 
     if save_dir is None and sgld_params.checkpoint_every:
         model_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -102,14 +125,20 @@ def sgld(
 
         with t.no_grad():
 
-            w = t.nn.utils.parameters_to_vector(model.parameters())
+            w = t.nn.utils.parameters_to_vector(model.parameters()).to(dtype=t.float32)
 
             loss_grad = -t.nn.utils.parameters_to_vector(
                 [
                     p.grad if p.grad is not None else t.zeros_like(p)
                     for p in model.parameters()
                 ]
-            )
+            ).to(dtype=t.float32)
+
+            if sgld_params.preconditioner != "none":
+                preconditioner, v_rmsprop = rms_preconditioner(
+                    gradient=loss_grad, v_rmsprop=v_rmsprop, sgld_params=sgld_params
+                )
+
             localization_grad = (w_init - w) * sgld_params.gamma
 
             total_grad = (
@@ -118,11 +147,16 @@ def sgld(
                 * (sgld_params.nbeta * loss_grad + localization_grad)
             )  # we don't need to divide by batch size because cross entropy already averages over that
 
-            gaussian_noise = t.randn_like(w, device=device) * t.sqrt(
-                t.tensor(sgld_params.eps)
+            total_grad = preconditioner * total_grad
+
+            gaussian_noise = (
+                t.randn_like(w, device=device)
+                * t.sqrt(t.tensor(sgld_params.eps))
+                * t.sqrt(preconditioner)
             )
 
             w = w + total_grad + gaussian_noise
+            w = w.to(dtype=t.float16)
             t.nn.utils.vector_to_parameters(w, model.parameters())
 
             sgld_dict["L2_norm"].append(t.norm(w).item())
@@ -155,6 +189,7 @@ if __name__ == "__main__":
         batch_size=512,
         num_steps=10000,
         checkpoint_every=100,
+        preconditioner="rmsprop",
     )
 
     RUNS_DIR = "/mnt/ssd-1/adam/basin-volume/runs"

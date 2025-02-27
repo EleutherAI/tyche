@@ -12,7 +12,7 @@ RUNS_DIR = "/mnt/ssd-1/adam/basin-volume/runs"
 RUNS_DIR_sgld = "/mnt/ssd-1/louis/palamedes/sgld_samples"
 
 
-device = t.device("cuda:5" if t.cuda.is_available() else "cpu")
+device = t.device("cuda:6" if t.cuda.is_available() else "cpu")
 
 
 # load model
@@ -60,6 +60,9 @@ def sweep(model, dataset, device, hyperparameters_sweep, chains=1):
                                 batch_size=b,
                                 num_steps=s,
                                 gamma=g,
+                                alpha_rmsprop=0.99,
+                                lambda_rmsprop=1e-5,
+                                preconditioner=hyperparameters_sweep["preconditioner"],
                             )
                             sgld_dict = sgld(
                                 model=model,
@@ -87,15 +90,17 @@ def sweep(model, dataset, device, hyperparameters_sweep, chains=1):
 
 if __name__ == "__main__":
     hyperparameters_sweep = {
-        "eps": [1e-6, 3e-6, 6e-6],
-        "nbeta": [1e4],
-        "batch_size": [512],
-        "gamma": [0, 1],
-        "num_steps": [1000],
+        "eps": [1.5 * 1e-7, 0.5 * 1e-7],
+        "nbeta": [1e6],
+        "batch_size": [100],
+        "gamma": [0],
+        "num_steps": [5000],
+        "preconditioner": "rmsprop",
     }
     sweep(
         model=model,
         dataset=[clean_ds, clean_ds_labels],
         hyperparameters_sweep=hyperparameters_sweep,
-        chains=2,
+        chains=10,
+        device=device,
     )

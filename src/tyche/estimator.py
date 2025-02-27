@@ -5,6 +5,7 @@ from typing import Optional, Union, Literal
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import Dataset
+import itertools
 
 from .data import chunk_and_tokenize
 from .volume import get_estimates_vectorized_gauss, VolumeResult
@@ -189,19 +190,31 @@ class CausalLMEstimator(VolumeEstimator):
                 self.config.val_size_ref = self.config.val_size
 
     def _prepare_dataset(self, dataset, text_key: str, val_size: int):
+        # First, extract the validation subset
+        if hasattr(dataset, "__len__"):
+            val_dataset = dataset.select(range(min(len(dataset), val_size)))
+        else:
+            # For IterableDataset, take the first val_size examples
+            from datasets import Dataset
+            val_examples = list(itertools.islice(dataset, val_size))
+            val_dataset = Dataset.from_dict({k: [ex[k] for ex in val_examples] 
+                                           for k in val_examples[0].keys()})
+        
         if self.config.chunking:
             tokens = chunk_and_tokenize(
-                dataset, self.tokenizer, max_seq_len=self.config.max_seq_len, text_key=text_key
-            )["input_ids"]
+                val_dataset, self.tokenizer, max_seq_len=self.config.max_seq_len, text_key=text_key
+            )
+            if hasattr(tokens, "__len__"):
+                tokens = tokens["input_ids"]
         else:
             tokens = get_strings_and_tokenize(
-                dataset, text_key, self.tokenizer,
+                val_dataset, text_key, self.tokenizer,
                 max_seq_len=self.config.max_seq_len,
-                padding=True,
+                padding='max_length',
                 truncation=True,
                 format="torch"
-            )["input_ids"]
-        tokens = tokens[:val_size]
+            )
+        
         val_data = tokens.to("cuda")
         probs_p = None
         if self.config.cache_mode:
@@ -336,19 +349,31 @@ class PythiaEstimator(VolumeEstimator):
             self.config.val_size2 = self.config.val_size
 
     def _prepare_dataset(self, dataset, text_key: str, val_size: int):
+        # First, extract the validation subset
+        if hasattr(dataset, "__len__"):
+            val_dataset = dataset.select(range(min(len(dataset), val_size)))
+        else:
+            # For IterableDataset, take the first val_size examples
+            from datasets import Dataset
+            val_examples = list(itertools.islice(dataset, val_size))
+            val_dataset = Dataset.from_dict({k: [ex[k] for ex in val_examples] 
+                                           for k in val_examples[0].keys()})
+        
         if self.config.chunking:
             tokens = chunk_and_tokenize(
-                dataset, self.tokenizer, max_seq_len=self.config.max_seq_len, text_key=text_key
-            )["input_ids"]
+                val_dataset, self.tokenizer, max_seq_len=self.config.max_seq_len, text_key=text_key
+            )
+            if hasattr(tokens, "__len__"):
+                tokens = tokens["input_ids"]
         else:
             tokens = get_strings_and_tokenize(
-                dataset, text_key, self.tokenizer,
+                val_dataset, text_key, self.tokenizer,
                 max_seq_len=self.config.max_seq_len,
-                padding=True,
+                padding='max_length',
                 truncation=True,
                 format="torch"
-            )["input_ids"]
-        tokens = tokens[:val_size]
+            )
+        
         val_data = tokens.to("cuda")
         probs_p = None
         if self.config.cache_mode:

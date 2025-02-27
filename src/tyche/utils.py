@@ -232,75 +232,96 @@ def get_strings_and_tokenize(
     tokenizer,
     num_proc=None,
     load_from_cache_file=True,
-    max_seq_len=2048,
+    max_seq_len=None,
     padding=True,
     truncation=True,
     format="torch",
 ):
     """
-    Extract text strings from a dataset using the specified text column and optionally tokenize them.
-    Works with both regular and streaming datasets.
+    Extract text strings from a dataset using the specified text column and tokenize them.
     
     Args:
-        dataset: A HuggingFace Dataset or IterableDataset
+        dataset: A HuggingFace Dataset
         text_column: The column name containing the text data
-        tokenizer: Optional tokenizer to use for tokenizing the extracted text
-        max_length: Maximum length for tokenization
-        padding: Whether to pad sequences (only used if tokenizer is provided)
-        truncation: Whether to truncate sequences (only used if tokenizer is provided)
+        tokenizer: Tokenizer to use for tokenizing the extracted text
         num_proc: Number of processes to use for processing
         load_from_cache_file: Whether to load from cache file
+        max_seq_len: Maximum sequence length cap for tokenization (None means use tokenizer's model_max_length)
+        padding: Whether to pad sequences
+        truncation: Whether to truncate sequences
+        format: Output format (e.g., "torch")
+        sample_size: Number of examples to sample for determining actual max length
     
     Returns:
-        A dataset with processed text and optional tokenization
+        The tokenized input_ids
     """
-    def extract_text(example):
-        item = example[text_column]
-        if isinstance(item, str):
-            text = item
-        elif isinstance(item, list):
-            if len(item) == 0:
-                text = ""
-            elif isinstance(item[0], dict):
-                if "content" in item[0]:
-                    text = " ".join(d["content"] for d in item)
-                else:
-                    # Use the first key if content is not available
-                    keys = sorted(list(item[0].keys()))
-                    text = " ".join(d[keys[0]] for d in item)
-            else:
-                text = " ".join(str(x) for x in item)
-        elif isinstance(item, dict):
-            # Handle dictionary items
-            if "content" in item:
-                text = item["content"]
-            else:
-                # Use the first key if content is not available
-                keys = sorted(list(item.keys()))
-                text = item[keys[0]]
-        else:
-            text = str(item)
-        
-        result = {"processed_text": text}
-        
-        # Tokenize if a tokenizer is provided
-        tokenized = tokenizer(
+    # If max_seq_len is None, use 2048 default
+    if max_seq_len is None:
+        max_seq_len = 2048
+    
+    # Sample the dataset to determine actual max length
+    actual_max_len = max_seq_len
+    try:
+        sample_indices = list(range(len(dataset)))
+        sample_dataset = dataset.select(sample_indices)
+        sample_lengths = []
+            
+        for example in sample_dataset:
+            item = example[text_column]
+            text = extract_text_from_item(item)
+            
+            # Get length without actually padding
+            tokens = tokenizer(text, truncation=truncation, max_length=max_seq_len)
+            sample_lengths.append(len(tokens['input_ids']))
+            
+        # Set actual_max_len to the minimum of max_seq_len and the longest sequence
+        if sample_lengths:
+            actual_max_len = min(max_seq_len, max(sample_lengths))
+    except Exception as e:
+        print(f"Error sampling dataset for length determination: {e}")
+        actual_max_len = max_seq_len
+    
+    def tokenize_example(example):
+        text = extract_text_from_item(example[text_column])
+        return tokenizer(
             text,
-            max_length=max_seq_len,
+            max_length=actual_max_len,
             padding=padding,
             truncation=truncation,
         )
-        result.update(tokenized)
-            
-        return result
     
-    # Use dataset.map for processing
-    return dataset.map(
-        extract_text,
+    processed_dataset = dataset.map(
+        tokenize_example,
         num_proc=num_proc,
         load_from_cache_file=load_from_cache_file,
-    ).with_format(format, columns=["input_ids"])
+    )
+    
+    # Apply format and return the input_ids
+    return processed_dataset.with_format(format)["input_ids"]
 
+def extract_text_from_item(item):
+    """Helper function to extract text from various data structures"""
+    if isinstance(item, str):
+        return item
+    elif isinstance(item, list):
+        if len(item) == 0:
+            return ""
+        elif isinstance(item[0], dict):
+            if "content" in item[0]:
+                return " ".join(d["content"] for d in item)
+            else:
+                keys = sorted(list(item[0].keys()))
+                return " ".join(d[keys[0]] for d in item)
+        else:
+            return " ".join(str(x) for x in item)
+    elif isinstance(item, dict):
+        if "content" in item:
+            return item["content"]
+        else:
+            keys = sorted(list(item.keys()))
+            return item[keys[0]]
+    else:
+        return str(item)
 
 def list_largest_tensors():
     # Get all tensor objects

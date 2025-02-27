@@ -8,8 +8,8 @@ from .math import log, cos, sinc, gaussint_ln_noncentral_erf, log_hyperball_volu
 from .vectors import ImplicitVector, ImplicitRandomVector
 
 def find_radius_vectorized(center, vecs, cutoff, fn, *,
-                           rtol=1e-1,  
-                           init_mult=1, iters=10, jump=2.0):
+                           rtol=1e-1, iters=10, allow_unconverged=False,
+                           init_mult=1, jump=2.0):
     """
     Find the basin radius for a function along a batch of direction vectors.
     This uses a binary search, multiplying by `jump` when unbounded above.
@@ -57,7 +57,13 @@ def find_radius_vectorized(center, vecs, cutoff, fn, *,
 
     while any(abs(deltas - cutoff) > cutoff * rtol):
         if iters == 0:
-            raise ValueError("Maximum number of iterations reached without converging")
+            if allow_unconverged:
+                print(f"\n{cutoff = }")
+                print(f"{abs(deltas - cutoff) / cutoff = }")
+                print("[WARN] Maximum number of iterations reached without converging")
+                break
+            else:
+                raise ValueError("Maximum number of iterations reached without converging")
 
         # Compute losses for each vector at current guess multiplier
         vec_losses = torch.stack([fn(center, mults[i] * vecs[i]) for i in range(batch_size)])

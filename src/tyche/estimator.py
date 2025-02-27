@@ -33,6 +33,7 @@ class VolumeConfig:
     tqdm: bool = True
     debug: bool = False
     iters: int = 10
+    allow_unconverged: bool = False
 
     # Model-specific parameters
     model_type: Literal["causal", "pythia", "convnext", "mlp"] = "causal"
@@ -127,7 +128,8 @@ class VolumeEstimator(ABC):
             cutoff=self.config.cutoff,
             with_tqdm=self.config.tqdm,
             debug=self.config.debug,
-            iters=self.config.iters
+            iters=self.config.iters,
+            allow_unconverged=self.config.allow_unconverged
         )
     
     @classmethod

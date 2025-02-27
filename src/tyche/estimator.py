@@ -9,7 +9,7 @@ from datasets import Dataset
 from .data import chunk_and_tokenize
 from .volume import get_estimates_vectorized_gauss, VolumeResult
 from .precondition import matrix_preconditioner, diag_preconditioner
-from .utils import BASIN_VOLUME_DIR, list_largest_tensors
+from .utils import BASIN_VOLUME_DIR, list_largest_tensors, get_strings_and_tokenize
 from .pythia import *
 from .convnext import (
     load_convnext_checkpoint,
@@ -48,7 +48,6 @@ class VolumeConfig:
     dataset: Optional[Dataset] = None
     text_key: Optional[str] = None
     max_seq_len: Optional[int] = None
-    max_seqs_per_dataset: Optional[int] = None
     # Cache params
     cache_mode: Literal[None, "cpu", "gpu"] = None
     chunking: bool = False
@@ -195,12 +194,12 @@ class CausalLMEstimator(VolumeEstimator):
                 dataset, self.tokenizer, max_seq_len=self.config.max_seq_len, text_key=text_key
             )["input_ids"]
         else:
-            tokens = self.tokenizer(
-                dataset[text_key],
+            tokens = get_strings_and_tokenize(
+                dataset, text_key, self.tokenizer,
+                max_seq_len=self.config.max_seq_len,
                 padding=True,
                 truncation=True,
-                max_length=self.config.max_seq_len,
-                return_tensors="pt"
+                format="torch"
             )["input_ids"]
         tokens = tokens[:val_size]
         val_data = tokens.to("cuda")
@@ -337,18 +336,17 @@ class PythiaEstimator(VolumeEstimator):
             self.config.val_size2 = self.config.val_size
 
     def _prepare_dataset(self, dataset, text_key: str, val_size: int):
-        dataset = dataset[:self.config.max_seqs_per_dataset]
         if self.config.chunking:
             tokens = chunk_and_tokenize(
                 dataset, self.tokenizer, max_seq_len=self.config.max_seq_len, text_key=text_key
             )["input_ids"]
         else:
-            tokens = self.tokenizer(
-                dataset[text_key],
+            tokens = get_strings_and_tokenize(
+                dataset, text_key, self.tokenizer,
+                max_seq_len=self.config.max_seq_len,
                 padding=True,
                 truncation=True,
-                max_length=self.config.max_seq_len,
-                return_tensors="pt"
+                format="torch"
             )["input_ids"]
         tokens = tokens[:val_size]
         val_data = tokens.to("cuda")
@@ -395,12 +393,11 @@ class PythiaEstimator(VolumeEstimator):
         # Primary validation data
         if not self.config.dataset_ref:
             self.val_data_ref = load_pythia_val_data(self.tokenizer, n_seqs=self.config.val_size)
+            logits_pref = self.apply_fn(self.params, self.val_data_ref)
+            probs_pref = torch.nn.functional.softmax(logits_pref, dim=-1)
         else:
             self.val_data_ref, probs_pref = self._prepare_dataset(self.config.dataset_ref, self.config.text_key_ref, self.config.val_size_ref)
 
-        
-        logits_pref = self.apply_fn(self.params, self.val_data_ref)
-        probs_pref = torch.nn.functional.softmax(logits_pref, dim=-1)
         
         if self.config.dataset is not None:
             self.val_data, self.probs_p = self._prepare_dataset(self.config.dataset, self.config.text_key, self.config.val_size)

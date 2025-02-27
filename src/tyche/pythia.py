@@ -27,7 +27,6 @@ def load_pythia_val_data(tokenizer, n_seqs=10):
         text_val = [json.loads(line)['text'] for line in f]
     text_val = text_val[:n_seqs]
     X_val_t = tokenizer(text_val, return_tensors="pt", padding=True, truncation=True, max_length=1024)['input_ids'].to("cuda")
-
     return X_val_t
 
 def match_params_to_flat(model_params, flat_params):

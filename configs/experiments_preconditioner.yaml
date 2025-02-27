@@ -6,6 +6,7 @@ defaults:
   model-family: pythia
   model-size: 14m
   ref-type: random
+  ignore-commit-check: true
 
 experiments:
   - name: ethics_bbq_preconditioned
@@ -32,58 +33,58 @@ experiments:
       task2: gsm8k
       use-preconditioner: false
 
-  - name: hh_smoltalk_preconditioned
-    params:
-      task1: anthropic_hh
-      task2: smoltalk
-      use-preconditioner: true
+  # - name: hh_smoltalk_preconditioned
+  #   params:
+  #     task1: anthropic_hh
+  #     task2: smoltalk
+  #     use-preconditioner: true
 
 
-  - name: hh_smoltalk_no_preconditioner
-    params:
-      task1: anthropic_hh
-      task2: smoltalk
-      use-preconditioner: false
+  # - name: hh_smoltalk_no_preconditioner
+  #   params:
+  #     task1: anthropic_hh
+  #     task2: smoltalk
+  #     use-preconditioner: false
 
 
-  - name: ethics_bbq_pile_preconditioned
-    params:
-      task1: ethics
-      task2: bbq
-      use-preconditioner: true
-      ref-type: none
+  # - name: ethics_bbq_pile_preconditioned
+  #   params:
+  #     task1: ethics
+  #     task2: bbq
+  #     use-preconditioner: true
+  #     ref-type: none
 
-  - name: ethics_bbq_pile_no_preconditioner
-    params:
-      task1: ethics
-      task2: bbq
-      use-preconditioner: false
-      ref-type: none
+  # - name: ethics_bbq_pile_no_preconditioner
+  #   params:
+  #     task1: ethics
+  #     task2: bbq
+  #     use-preconditioner: false
+  #     ref-type: none
 
-  - name: finemath_gsm8k_pile_preconditioned
-    params:
-      task1: finemath
-      task2: gsm8k
-      use-preconditioner: true
-      ref-type: none
+  # - name: finemath_gsm8k_pile_preconditioned
+  #   params:
+  #     task1: finemath
+  #     task2: gsm8k
+  #     use-preconditioner: true
+  #     ref-type: none
 
-  - name: finemath_gsm8k_pile_no_preconditioner
-    params:
-      task1: finemath
-      task2: gsm8k
-      use-preconditioner: false
-      ref-type: none
+  # - name: finemath_gsm8k_pile_no_preconditioner
+  #   params:
+  #     task1: finemath
+  #     task2: gsm8k
+  #     use-preconditioner: false
+  #     ref-type: none
 
-  - name: hh_smoltalk_pile_preconditioned
-    params:
-      task1: anthropic_hh
-      task2: smoltalk
-      use-preconditioner: true
-      ref-type: none
+  # - name: hh_smoltalk_pile_preconditioned
+  #   params:
+  #     task1: anthropic_hh
+  #     task2: smoltalk
+  #     use-preconditioner: true
+  #     ref-type: none
 
-  - name: hh_smoltalk_pile_no_preconditioner
-    params:
-      task1: anthropic_hh
-      task2: smoltalk
-      use-preconditioner: false
-      ref-type: none
+  # - name: hh_smoltalk_pile_no_preconditioner
+  #   params:
+  #     task1: anthropic_hh
+  #     task2: smoltalk
+  #     use-preconditioner: false
+  #     ref-type: none

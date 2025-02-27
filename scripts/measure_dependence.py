@@ -12,6 +12,10 @@ from typing import Optional, Literal, Dict, Any
 from datasets import load_dataset, Dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
+import psutil
+import gc
+import tracemalloc
+from functools import lru_cache
 
 from tyche import VolumeConfig, VolumeEstimator
 
@@ -22,7 +26,7 @@ def generate_random_tokens(n_samples: int = 50, length: int = 50) -> Dataset:
     return Dataset.from_dict(data)
 
 TASK_TO_DATASET = {
-    "anthropic_hh": ("Anthropic/hh-rlhf", None, "train", "text"),
+    "anthropic_hh": ("Anthropic/hh-rlhf", None, "train", "chosen"),
     "smoltalk": ("HuggingFaceTB/smoltalk", "everyday-conversations", "train", "messages"),
     "finemath": ("HuggingFaceTB/finemath", "finemath-3plus", "train", "text"),
     "gsm8k": ("gsm8k", "main", "train", "question"),
@@ -40,8 +44,17 @@ TASK_TO_DATASET = {
     "quirky_alice": ("EleutherAI/quirky_hemisphere_alice", None, "test", "statement")
 }
 
+def log_memory_usage(stage: str):
+    """Log current memory usage."""
+    process = psutil.Process(os.getpid())
+    memory_info = process.memory_info()
+    print(f"Memory usage at {stage}: {memory_info.rss / (1024 * 1024):.2f} MB")
+
+@lru_cache(maxsize=16)
 def load_task_dataset(task_name: str) -> tuple[Dataset, str]:
-    """Load a dataset for a given task name."""
+    """Load a dataset for a given task name with caching."""
+    log_memory_usage(f"Before loading dataset {task_name}")
+    
     if task_name not in TASK_TO_DATASET:
         raise ValueError(f"Unknown task {task_name}. Available tasks: {list(TASK_TO_DATASET.keys())}")
     
@@ -52,25 +65,33 @@ def load_task_dataset(task_name: str) -> tuple[Dataset, str]:
             dataset_dict = load_dataset(dataset_name)
             # Use 'age' split as default
             dataset = dataset_dict['age']
+            log_memory_usage(f"After loading dataset {task_name}")
             return dataset, text_key
         
         if subset is not None:
-            dataset = load_dataset(dataset_name, subset, split=split)
+            dataset = load_dataset(dataset_name, subset, split=split, streaming=True)
         else:
-            dataset = load_dataset(dataset_name, split=split)
+            dataset = load_dataset(dataset_name, split=split, streaming=True)
+        
+        log_memory_usage(f"After loading dataset {task_name}")
         return dataset, text_key
     except Exception as e:
         raise RuntimeError(f"Failed to load dataset {dataset_name}: {e}")
 
+@lru_cache(maxsize=8)
 def load_reference_dataset(ref_type: Optional[Literal["random", "pile", "task"]], 
                          task_name: Optional[str] = None,
                          n_samples: int = 50) -> Optional[tuple[Dataset, str]]:
-    """Load a reference dataset."""
+    """Load a reference dataset with caching."""
+    log_memory_usage(f"Before loading reference dataset {ref_type}")
+    
     if ref_type is None or ref_type.lower() == "none":
         return None
         
     if ref_type == "random":
-        return generate_random_tokens(n_samples), "text"
+        result = generate_random_tokens(n_samples), "text"
+        log_memory_usage(f"After loading reference dataset {ref_type}")
+        return result
     elif ref_type == "pile":
         dataset = load_dataset("EleutherAI/pile", split="train", streaming=True)
         # Take first n_samples examples
@@ -79,7 +100,9 @@ def load_reference_dataset(ref_type: Optional[Literal["random", "pile", "task"]]
             if len(data["text"]) >= n_samples:
                 break
             data["text"].append(item["text"])
-        return Dataset.from_dict(data), "text"
+        result = Dataset.from_dict(data), "text"
+        log_memory_usage(f"After loading reference dataset {ref_type}")
+        return result
     elif ref_type == "task":
         if task_name is None:
             raise ValueError("task_name must be provided when ref_type is 'task'")
@@ -248,8 +271,16 @@ def main():
     misc_group = parser.add_argument_group("Miscellaneous")
     misc_group.add_argument("--ignore-commit-check", action="store_true",
                            help="Ignore git commit check")
+    misc_group.add_argument("--debug-memory", action="store_true",
+                           help="Enable detailed memory tracking")
     
     args = parser.parse_args()
+    
+    # Start memory tracking if requested
+    if args.debug_memory:
+        tracemalloc.start()
+    
+    log_memory_usage("Script start")
     
     # Check git status
     if not args.ignore_commit_check:
@@ -263,10 +294,12 @@ def main():
         model_path = get_model_path(args.model_family, args.model_size)
     except ValueError as e:
         parser.error(str(e))
-        
+    
+    log_memory_usage("Before loading model")
     print(f"Loading model from {model_path}")
     model = AutoModelForCausalLM.from_pretrained(model_path)
     tokenizer = AutoTokenizer.from_pretrained(model_path)
+    log_memory_usage("After loading model")
     
     # Set pythia-specific tokenizer settings
     if args.model_family == "pythia":
@@ -283,6 +316,15 @@ def main():
         ref_dataset, text_key_ref = ref_result
     else:
         ref_dataset, text_key_ref = None, None
+    
+    log_memory_usage("After loading all datasets")
+    
+    if args.debug_memory:
+        print("\nTop 10 memory allocations:")
+        snapshot = tracemalloc.take_snapshot()
+        top_stats = snapshot.statistics('lineno')
+        for stat in top_stats[:10]:
+            print(f"{stat.size / (1024 * 1024):.1f} MB: {stat.traceback.format()[0]}")
     
     model_type = 'causal' if args.model_family == 'smollm2' else 'pythia'
     implicit_vectors = model_type == 'causal'
@@ -311,8 +353,16 @@ def main():
     
     # Run estimation
     print("Running dependence estimation...")
+    log_memory_usage("Before estimation")
     estimator = VolumeEstimator.from_config(cfg)
     result = estimator.run()
+    log_memory_usage("After estimation")
+    
+    # Clean up to reduce memory usage
+    del estimator
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     
     # Save detailed results and log experiment
     result_filepath = save_experiment_result(result, args)
@@ -334,6 +384,8 @@ def main():
     print(f"Joint - Ref: {joint_ref:.2f}")
     print(f"(Marginal1 + Marginal2 - 2*Ref): {marginal_ref:.2f}")
     print(f"Normalized dependence: {normalized_dependence:.2f}")
+    
+    log_memory_usage("End of script")
 
 if __name__ == "__main__":
     main() 

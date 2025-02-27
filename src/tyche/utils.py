@@ -226,6 +226,82 @@ def scaled_histogram(values, label, settings, nbins=None):
     plt.stairs(counts, bins, **dict(settings, label=label))
 
 
+def get_strings_and_tokenize(
+    dataset,
+    text_column,
+    tokenizer,
+    num_proc=None,
+    load_from_cache_file=True,
+    max_seq_len=2048,
+    padding=True,
+    truncation=True,
+    format="torch",
+):
+    """
+    Extract text strings from a dataset using the specified text column and optionally tokenize them.
+    Works with both regular and streaming datasets.
+    
+    Args:
+        dataset: A HuggingFace Dataset or IterableDataset
+        text_column: The column name containing the text data
+        tokenizer: Optional tokenizer to use for tokenizing the extracted text
+        max_length: Maximum length for tokenization
+        padding: Whether to pad sequences (only used if tokenizer is provided)
+        truncation: Whether to truncate sequences (only used if tokenizer is provided)
+        num_proc: Number of processes to use for processing
+        load_from_cache_file: Whether to load from cache file
+    
+    Returns:
+        A dataset with processed text and optional tokenization
+    """
+    def extract_text(example):
+        item = example[text_column]
+        if isinstance(item, str):
+            text = item
+        elif isinstance(item, list):
+            if len(item) == 0:
+                text = ""
+            elif isinstance(item[0], dict):
+                if "content" in item[0]:
+                    text = " ".join(d["content"] for d in item)
+                else:
+                    # Use the first key if content is not available
+                    keys = sorted(list(item[0].keys()))
+                    text = " ".join(d[keys[0]] for d in item)
+            else:
+                text = " ".join(str(x) for x in item)
+        elif isinstance(item, dict):
+            # Handle dictionary items
+            if "content" in item:
+                text = item["content"]
+            else:
+                # Use the first key if content is not available
+                keys = sorted(list(item.keys()))
+                text = item[keys[0]]
+        else:
+            text = str(item)
+        
+        result = {"processed_text": text}
+        
+        # Tokenize if a tokenizer is provided
+        tokenized = tokenizer(
+            text,
+            max_length=max_seq_len,
+            padding=padding,
+            truncation=truncation,
+        )
+        result.update(tokenized)
+            
+        return result
+    
+    # Use dataset.map for processing
+    return dataset.map(
+        extract_text,
+        num_proc=num_proc,
+        load_from_cache_file=load_from_cache_file,
+    ).with_format(format, columns=["input_ids"])
+
+
 def list_largest_tensors():
     # Get all tensor objects
     tensors = []

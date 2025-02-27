@@ -43,7 +43,7 @@ def sgld(
     sgld_params: SGLDParams,
     device,
     dataset: List,
-    cost_fn: str = "cross_entropy",  # "KL" or "cross_entropy"
+    cost_fn: str = "cross_entropy",  # "KL" or "cross_entropy" or "zero"
 ):
     """Run SGLD on the model using the given dataset and cost function."""
 
@@ -85,19 +85,20 @@ def sgld(
 
         model.zero_grad()
 
-        indices = t.randint(0, dataset[0].shape[0], (sgld_params.batch_size,))
+        if cost_fn != "zero":
+            indices = t.randint(0, dataset[0].shape[0], (sgld_params.batch_size,))
 
-        inputs, labels = dataset[0][indices], dataset[1][indices]
+            inputs, labels = dataset[0][indices], dataset[1][indices]
 
-        logits = model(inputs)["logits"]
+            logits = model(inputs)["logits"]
 
-        if cost_fn == "KL":
-            cost = logit_loss(logits_init[indices], logits)
-        elif cost_fn == "cross_entropy":
-            cost = t.nn.functional.cross_entropy(logits, labels)
-        sgld_dict["loss"].append(cost.item())
+            if cost_fn == "KL":
+                cost = logit_loss(logits_init[indices], logits)
+            elif cost_fn == "cross_entropy":
+                cost = t.nn.functional.cross_entropy(logits, labels)
+            sgld_dict["loss"].append(cost.item())
 
-        cost.backward()
+            cost.backward()
 
         with t.no_grad():
 
@@ -128,7 +129,7 @@ def sgld(
 
             sgld_dict["L2_distance_init"].append(t.norm(w - w_init).item())
 
-            if t.isnan(cost).any():
+            if cost_fn != "zero" and t.isnan(cost).any():
                 print("Cost is NaN, returning")
                 return sgld_dict
     return sgld_dict

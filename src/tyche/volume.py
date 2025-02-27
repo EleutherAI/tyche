@@ -121,6 +121,8 @@ def get_estimates_vectorized_gauss(n,
                                    y_tol=5,
                                    seed=42,
                                    with_tqdm=True,
+                                   init_mult=1,
+                                   rtol=1e-1,
                                    **kwargs):
     implicit = isinstance(params, ImplicitVector)
 
@@ -170,7 +172,7 @@ def get_estimates_vectorized_gauss(n,
         if debug:
             print_gpu_memory()
 
-        kwargs = {'cutoff': 1e-3, 'fn': fn, 'iters': 100, 'rtol': 1e-2, **kwargs}
+        kwargs = {'cutoff': 1e-3, 'fn': fn, 'iters': 100, 'rtol': rtol, 'init_mult': init_mult, **kwargs}
         mults, deltas = find_radius_vectorized(center, vecs, **kwargs)
 
         x1 = mults * props

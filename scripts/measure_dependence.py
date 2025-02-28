@@ -190,7 +190,11 @@ def log_experiment(args: argparse.Namespace, result: Dict[str, Any],
                    2 * result.estimates['ref']).mean().item()
     min_marginal = min(result.estimates['marginal1'].mean().item() - result.estimates['ref'].mean().item(), 
                       result.estimates['marginal2'].mean().item() - result.estimates['ref'].mean().item())
-    normalized_dependence = 1 - (joint_ref - marginal_ref)/(marginal_ref - min_marginal)
+    denom = min_marginal - marginal_ref
+    if abs(denom) < 1e-9:
+        normalized_dependence = 1
+    else:
+        normalized_dependence = 1 - (joint_ref - marginal_ref) / denom
     
     # Prepare row data
     row = {
@@ -351,7 +355,8 @@ def main():
         implicit_vectors=implicit_vectors,
         data_batch_size=1,
         tol=1,
-        scale_ref=args.ref_div_multiplier
+        scale_ref=args.ref_div_multiplier,
+        iters=50
     )
     
     # Run estimation
@@ -381,7 +386,11 @@ def main():
     joint_ref = (result.estimates['joint'] - result.estimates['ref']).mean()
     marginal_ref = (result.estimates['marginal1'] + result.estimates['marginal2'] - 2 * result.estimates['ref']).mean()
     min_marginal = min(result.estimates['marginal1'].mean() - result.estimates['ref'].mean(), result.estimates['marginal2'].mean() - result.estimates['ref'].mean())
-    normalized_dependence = 1 - (joint_ref - marginal_ref)/(marginal_ref - min_marginal)
+    denom = min_marginal - marginal_ref
+    if abs(denom) < 1e-9:
+        normalized_dependence = 1
+    else:
+        normalized_dependence = 1 - (joint_ref - marginal_ref) / denom
     
     print("\nDependence measures:")
     print(f"Joint - Ref: {joint_ref:.2f}")

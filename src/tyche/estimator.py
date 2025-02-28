@@ -35,6 +35,7 @@ class VolumeConfig:
     debug: bool = False
     reduction: Optional[Literal["mean"]] = "mean" # Reduction over the batch dimension
     iters: int = 10
+    rtol: float = 1e-2
 
     # Model-specific parameters
     model_type: Literal["causal", "pythia", "convnext", "mlp"] = "causal"
@@ -143,6 +144,7 @@ class VolumeEstimator(ABC):
                 with_tqdm=self.config.tqdm,
                 debug=self.config.debug,
                 iters=self.config.iters,
+                rtol=self.config.rtol,
             )
         return VolumeResult(
             estimates={k: multi_results[k].estimates for k in multi_results},

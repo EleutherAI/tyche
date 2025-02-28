@@ -346,18 +346,18 @@ class CausalLMEstimator(VolumeEstimator):
             self.kl_fns = {"marginal": kl_fn_factory(self.val_data, self.probs_p)}
         elif self.config.dataset2 is not None and self.config.dataset_ref is not None:
             kl_fn_ref = kl_fn_factory(self.val_data_ref, self.probs_p_ref, multiplier=self.config.scale_ref)
-            kl_fn1 = lambda a, b: torch.maximum(kl_fn_factory(self.val_data, self.probs_p)(a, b), kl_fn_ref(a, b))
-            kl_fn2 = lambda a, b: torch.maximum(kl_fn_factory(self.val_data2, self.probs_p2)(a, b), kl_fn_ref(a, b))
-            kl_fn_joint = lambda a, b: torch.maximum(kl_fn1(a, b), kl_fn2(a, b))
+            kl_fn1 = lambda a, b, mults=None: torch.maximum(kl_fn_factory(self.val_data, self.probs_p)(a, b, mults), kl_fn_ref(a, b, mults))
+            kl_fn2 = lambda a, b, mults=None: torch.maximum(kl_fn_factory(self.val_data2, self.probs_p2)(a, b, mults), kl_fn_ref(a, b, mults))
+            kl_fn_joint = lambda a, b, mults=None: torch.maximum(kl_fn1(a, b, mults), kl_fn2(a, b, mults))
             self.kl_fns = {"joint": kl_fn_joint, "marginal1": kl_fn1, "marginal2": kl_fn2, "ref": kl_fn_ref}
         elif self.config.dataset2 is not None:
             kl_fn1 = kl_fn_factory(self.val_data, self.probs_p)
             kl_fn2 = kl_fn_factory(self.val_data2, self.probs_p2)
-            kl_fn_joint = lambda a, b: torch.maximum(kl_fn1(a, b), kl_fn2(a, b))
+            kl_fn_joint = lambda a, b, mults=None: torch.maximum(kl_fn1(a, b, mults), kl_fn2(a, b, mults))
             self.kl_fns = {"joint": kl_fn_joint, "marginal1": kl_fn1, "marginal2": kl_fn2}
         elif self.config.dataset_ref is not None:
             kl_fn_ref = kl_fn_factory(self.val_data_ref, self.probs_p_ref, multiplier=self.config.scale_ref)
-            kl_fn1 = lambda a, b: torch.maximum(kl_fn_factory(self.val_data, self.probs_p)(a, b), kl_fn_ref(a, b))
+            kl_fn1 = lambda a, b, mults=None: torch.maximum(kl_fn_factory(self.val_data, self.probs_p)(a, b, mults), kl_fn_ref(a, b, mults))
             self.kl_fns = {"marginal1": kl_fn1, "ref": kl_fn_ref}
 
     def load_adam_vector(self):
@@ -511,9 +511,9 @@ class PythiaEstimator(VolumeEstimator):
             kl_fn_ref = kl_fn_factory(self.val_data_ref, probs_pref, multiplier=self.config.scale_ref)
             kl_fn_1_base = kl_fn_factory(self.val_data, self.probs_p)
             kl_fn_2_base = kl_fn_factory(self.val_data2, self.probs_p2)
-            kl_fn1 = lambda a, b: torch.maximum(kl_fn_1_base(a, b), kl_fn_ref(a, b))
-            kl_fn2 = lambda a, b: torch.maximum(kl_fn_2_base(a, b), kl_fn_ref(a, b))
-            kl_fn_joint = lambda a, b: torch.maximum(kl_fn1(a, b), kl_fn2(a, b))
+            kl_fn1 = lambda a, b, mults=None: torch.maximum(kl_fn_1_base(a, b, mults), kl_fn_ref(a, b, mults))
+            kl_fn2 = lambda a, b, mults=None: torch.maximum(kl_fn_2_base(a, b, mults), kl_fn_ref(a, b, mults))
+            kl_fn_joint = lambda a, b, mults=None: torch.maximum(kl_fn1(a, b, mults), kl_fn2(a, b, mults))
             self.kl_fns = {"joint": kl_fn_joint, "marginal1": kl_fn1, "marginal2": kl_fn2, "ref": kl_fn_ref}
         else:
             raise ValueError(f"Invalid dataset configuration: either both aux datasets or neither must be provided")

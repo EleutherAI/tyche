@@ -7,7 +7,11 @@ import numpy as np
 
 
 def plot_sgld_metric(
-    sgld_dicts=[], metric="loss", title="SGLD Loss", average: bool = False
+    sgld_dicts=[],
+    metric="loss",
+    title="SGLD Loss",
+    average: bool = False,
+    log_scale: bool = False,
 ):
     import matplotlib.pyplot as plt
     import numpy as np
@@ -65,6 +69,8 @@ def plot_sgld_metric(
 
     plt.xlabel("Epoch")
     plt.ylabel(metric)
+    if log_scale:
+        plt.yscale("log")
     plt.title(title)
     plt.legend()
 
@@ -79,17 +85,8 @@ def plot_sgld_sweep(
     metric: str = "loss",
     steps=None,
 ):
-
-    # Create figure with 3x3 grid
-    fig, axs = plt.subplots(3, 3, figsize=(15, 15))
-    axs = axs.flatten()  # Flatten to make indexing easier
-
-    # Add a big title to the entire figure
-    fig.suptitle(
-        f"SGLD Sweep: Batch Size = {batch_size}, Gamma = {gamma}, Metric= {metric}",
-        fontsize=20,
-        y=0.98,
-    )
+    # Initialize dictionary to store results
+    result_dict = {"figure": None, "plotted_data": []}
 
     # load sweep_config json as dictionary
     with open(f"{dir_path}/hyperparameters.json", "r") as f:
@@ -104,9 +101,27 @@ def plot_sgld_sweep(
         for e in sweep_config["eps"]:
             params.append((n, e))
 
+    # Calculate number of rows and columns needed
+    n_plots = len(params)
+    n_cols = min(3, n_plots)  # Maximum 3 columns
+    n_rows = (n_plots + n_cols - 1) // n_cols  # Ceiling division
+
+    # Create figure with the exact number of subplots needed
+    fig, axs = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 5 * n_rows))
+    if n_plots > 1:
+        axs = axs.flatten()  # Flatten to make indexing easier
+
+    # Add a big title to the entire figure
+    fig.suptitle(
+        f"SGLD Sweep: Batch Size = {batch_size}, Gamma = {gamma}, Metric= {metric}",
+        fontsize=20,
+        y=0.98,
+    )
+
     # Plot each combination
     for idx, (n, e) in enumerate(params):
-        ax = axs[idx]  # Get the current subplot
+        ax = axs[idx] if n_plots > 1 else axs  # Get the current subplot
+        plot_data = []  # Store data for current plot
 
         # Construct folder path
         folder = f"{dir_path}/sgld_eps{e}_nbeta{n}_batch{batch_size}_steps{steps}_gamma{gamma}"
@@ -122,7 +137,6 @@ def plot_sgld_sweep(
         # Try to load and plot data
         try:
             if not os.path.exists(folder):
-
                 ax.text(0.5, 0.5, "No data folder", transform=ax.transAxes, ha="center")
                 continue
 
@@ -161,16 +175,32 @@ def plot_sgld_sweep(
                 x = np.arange(len(avg))
                 ax.fill_between(x, avg - std, avg + std, alpha=0.4)
                 ax.plot(x, avg, label="average")
+                plot_data = t.tensor(avg)  # Convert to torch tensor
             else:
                 for i, d in enumerate(sgld_dicts):
-                    ax.plot(np.arange(len(d[metric])), d[metric], label=f"Run {i+1}")
+                    data = d[metric]
+                    ax.plot(np.arange(len(data)), data, label=f"Run {i+1}")
+                    plot_data.append(t.tensor(data))  # Convert to torch tensor
+                if plot_data:  # If there's data, stack it
+                    plot_data = t.stack(plot_data)
 
             ax.legend()
 
         except Exception as ex:
             print(f"Error for eps={e}, nbeta={n}: {ex}")
             ax.text(0.5, 0.5, "Error plotting", transform=ax.transAxes, ha="center")
+            plot_data = t.tensor([])  # Empty tensor for failed plots
+
+        result_dict["plotted_data"].append(plot_data)
+
+    # Remove any unused subplots
+    if n_plots > 1:
+        for idx in range(n_plots, len(axs)):
+            fig.delaxes(axs[idx])
 
     # Adjust spacing to make room for the suptitle
     plt.tight_layout(rect=[0, 0, 1, 0.96])
-    return fig
+
+    # Store figure in result dictionary
+    result_dict["figure"] = fig
+    return result_dict

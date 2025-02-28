@@ -37,13 +37,13 @@ def logit_loss(
     log_p = p - t.logsumexp(p, dim=-1, keepdim=True)  # log softmax of p
     log_q = q - t.logsumexp(q, dim=-1, keepdim=True)  # log softmax of q
 
-    # KL = sum(exp(log_p) * (log_p - log_q))
     return (log_p.exp() * (log_p - log_q)).sum(dim=-1).mean()
 
 
 def rms_preconditioner(
     gradient: Float[t.Tensor, " d_params"],
     v_rmsprop: Float[t.Tensor, " d_params"],
+    time_step: int,
     sgld_params: SGLDParams,
 ) -> Float[t.Tensor, " d_params"]:
 
@@ -52,7 +52,12 @@ def rms_preconditioner(
         + (1 - sgld_params.alpha_rmsprop) * gradient**2
     )
 
-    preconditioner = 1 / (t.sqrt(v_rmsprop) + sgld_params.lambda_rmsprop)
+    # bias correction
+    v_rmsprop_corrected = v_rmsprop / (1 - sgld_params.alpha_rmsprop ** (time_step + 1))
+
+    preconditioner = 1 / (t.sqrt(v_rmsprop_corrected) + sgld_params.lambda_rmsprop)
+
+    # print((preconditioner - preconditioner.mean()).abs().max().item())
 
     return preconditioner, v_rmsprop
 
@@ -72,6 +77,9 @@ def sgld(
     sgld_dict["loss"] = []
     sgld_dict["L2_norm"] = []
     sgld_dict["L2_distance_init"] = []
+    sgld_dict["v_rmsprop"] = []
+    sgld_dict["preconditioner"] = []
+    sgld_dict["gradient_norm"] = []
     save_dir = sgld_params.save_dir
 
     model = copy.deepcopy(model)
@@ -97,12 +105,12 @@ def sgld(
         t.save(w_init, f"{save_dir}/model_0.pt")
         print(f"Saving to {save_dir}")
 
-    for _ in range(sgld_params.num_steps):
+    for i in range(sgld_params.num_steps):
 
         if (
             sgld_params.checkpoint_every
-            and _ % sgld_params.checkpoint_every == 0
-            and _ > 0
+            and i % sgld_params.checkpoint_every == 0
+            and i > 0
         ):
             t.save(w, f"{save_dir}/model_{_}.pt")
 
@@ -136,7 +144,10 @@ def sgld(
 
             if sgld_params.preconditioner != "none":
                 preconditioner, v_rmsprop = rms_preconditioner(
-                    gradient=loss_grad, v_rmsprop=v_rmsprop, sgld_params=sgld_params
+                    gradient=loss_grad,
+                    v_rmsprop=v_rmsprop,
+                    sgld_params=sgld_params,
+                    time_step=i,
                 )
 
             localization_grad = (w_init - w) * sgld_params.gamma
@@ -162,6 +173,12 @@ def sgld(
             sgld_dict["L2_norm"].append(t.norm(w).item())
 
             sgld_dict["L2_distance_init"].append(t.norm(w - w_init).item())
+
+            sgld_dict["v_rmsprop"].append(v_rmsprop.median().item())
+
+            sgld_dict["preconditioner"].append(preconditioner.median().item())
+
+            sgld_dict["gradient_norm"].append(t.norm(loss_grad).item())
 
             if cost_fn != "zero" and t.isnan(cost).any():
                 print("Cost is NaN, returning")

@@ -188,8 +188,8 @@ def log_experiment(args: argparse.Namespace, result: Dict[str, Any],
     joint_ref = (result.estimates['joint'] - result.estimates['ref']).mean().item()
     marginal_ref = (result.estimates['marginal1'] + result.estimates['marginal2'] - 
                    2 * result.estimates['ref']).mean().item()
-    min_marginal = min(result.estimates['marginal1'].mean().item(), 
-                      result.estimates['marginal2'].mean().item())
+    min_marginal = min(result.estimates['marginal1'].mean().item() - result.estimates['ref'].mean().item(), 
+                      result.estimates['marginal2'].mean().item() - result.estimates['ref'].mean().item())
     normalized_dependence = 1 - (joint_ref - marginal_ref)/(marginal_ref - min_marginal)
     
     # Prepare row data
@@ -249,6 +249,8 @@ def main():
                         default="random", help="Type of reference dataset to use ('none' for no reference)")
     ref_group.add_argument("--ref-task", choices=list(TASK_TO_DATASET.keys()),
                         help="Reference task (if ref-type is 'task')")
+    ref_group.add_argument("--ref-div-multiplier", type=float, default=0.75,
+                           help="Multiplier for reference KL divergence (we want the joint basin to be a subset of the reference basin)")
     
     # Estimation parameters
     est_group = parser.add_argument_group("Estimation Parameters")
@@ -348,7 +350,8 @@ def main():
         preconditioner_exponent=args.preconditioner_exp,
         implicit_vectors=implicit_vectors,
         data_batch_size=1,
-        tol=1
+        tol=1,
+        scale_ref=args.ref_div_multiplier
     )
     
     # Run estimation

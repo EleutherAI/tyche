@@ -59,9 +59,11 @@ class GPUManager:
 def merge_params(defaults, experiment_params):
     return {**defaults, **experiment_params}
 
-def build_command(experiment: Experiment, defaults: dict) -> str:
+def build_command(experiment: Experiment, defaults: dict) -> list:
     params = merge_params(defaults, experiment.params)
-    cmd_parts = ["python", "scripts/measure_dependence.py"]
+    # Use absolute path for the script
+    script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "measure_dependence.py"))
+    cmd_parts = ["python", script_path]
     
     for key, value in params.items():
         if isinstance(value, bool):
@@ -71,7 +73,7 @@ def build_command(experiment: Experiment, defaults: dict) -> str:
             cmd_parts.append(f"--{key}")
             cmd_parts.append(str(value))
     
-    return " ".join(cmd_parts)
+    return cmd_parts  # Return as list instead of joined string
 
 def experiment_already_run(experiment: Experiment, defaults: dict) -> Tuple[bool, str]:
     """
@@ -143,7 +145,7 @@ def ensure_log_file_exists():
         print(f"Created new experiment log file: {log_file}")
 
 def run_experiment(experiment: Experiment, gpu: int, defaults: dict) -> subprocess.Popen:
-    cmd = build_command(experiment, defaults)
+    cmd_args = build_command(experiment, defaults)
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = str(gpu)
     
@@ -154,17 +156,21 @@ def run_experiment(experiment: Experiment, gpu: int, defaults: dict) -> subproce
     
     print(f"\nStarting experiment: {experiment.name}")
     print(f"GPU: {gpu}")
-    print(f"Command: {cmd}")
+    print(f"Command: {' '.join(cmd_args)}")
     print(f"Log file: {log_file}\n")
+    
+    # Get the absolute path to the workspace root directory
+    workspace_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     
     with open(log_file, "w") as f:
         process = subprocess.Popen(
-            cmd,
-            shell=True,
+            cmd_args,  # Pass as list of arguments
+            shell=False,  # Don't use shell
             env=env,
             stdout=f,
             stderr=subprocess.STDOUT,
-            text=True
+            text=True,
+            cwd=workspace_root  # Explicitly set the working directory
         )
     return process
 

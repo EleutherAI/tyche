@@ -33,6 +33,7 @@ class VolumeConfig:
     seed: int = 42
     tqdm: bool = True
     debug: bool = False
+    reduction: Optional[Literal["mean"]] = "mean" # Reduction over the batch dimension
     iters: int = 10
 
     # Model-specific parameters
@@ -62,6 +63,8 @@ class VolumeConfig:
     preconditioner_eps: float = 1e-5
     preconditioner_exponent: float = 0.5
     adam_order: int = 2  # 1 for exp_avg, 2 for exp_avg_sq
+
+    last_token_only: bool = False
 
     # New optional fields for multi-dataset dependence estimation
     dataset2: Optional[Dataset] = None
@@ -266,40 +269,75 @@ class CausalLMEstimator(VolumeEstimator):
             self.val_data_ref, self.probs_p_ref = self._prepare_dataset(self.config.dataset_ref, self.config.text_key_ref, self.config.val_size_ref)
 
         def kl_fn_factory(val_data, probs_p, multiplier=1):
-            def kl_fn(a, b):
-                params_q = a + b if not self.config.implicit_vectors else a
-                kl_sum = 0.0
-                count = 0
-                for i in range(0, val_data.shape[0], self.config.data_batch_size):
-                    seqs = val_data[i:i+self.config.data_batch_size]
-                    if self.config.implicit_vectors:
-                        if b is not None:
-                            a.add_(b)
-                            logits_q = self.apply_fn(a, seqs)
-                            a.sub_(b)
-                        else:
-                            logits_q = self.apply_fn(a, seqs)
+            def kl_fn(a, b, mults=None):
+                def compute_multiplier(b, mults, i):
+                    if mults is None:
+                        return b
+                    elif mults.shape[0] == self.val_data.shape[0]:
+                        return mults[i] * b
+                    elif mults.shape[0] == 1:
+                        return mults[0] * b
                     else:
-                        logits_q = self.apply_fn(params_q, seqs)
+                        raise ValueError(f"Invalid mults: {mults}")
+
+                if self.config.implicit_vectors:
+                    assert a == self.params, "a must be the same as the model parameters"
+                else:
+                    b = compute_multiplier(b, mults, 0)
+                    params_q = a + b
+                if self.config.reduction == "mean":
+                    kl_sum = 0.0
+                    count = 0
+                elif self.config.reduction is None:
+                    kl_sum = torch.zeros(self.val_data.shape[0], device=self.val_data.device)
+                    count = torch.zeros(self.val_data.shape[0], device=self.val_data.device)
+                else:
+                    raise ValueError(f"Invalid reduction: {self.config.reduction}")
+                # Process one batch at a time
+
+                selection = slice(None) if not self.config.last_token_only else slice(-1)
+                for i in range(0, self.val_data.shape[0], self.config.data_batch_size):
+                    seqs = self.val_data[i:i+self.config.data_batch_size]
+                    if self.config.implicit_vectors:
+                        if b:
+                            a.add_(compute_multiplier(b, mults, i))
+                        logits_q = self.apply_fn(a, seqs)[..., selection]
+                        if b:
+                            a.sub_(compute_multiplier(b, mults, i))
+                    else:
+                        if mults and mults.shape[0] == self.val_data.shape[0]:
+                            b = compute_multiplier(b, mults, i)
+                            params_q = a + b
+                        logits_q = self.apply_fn(params_q, seqs)[..., selection]
                     logprobs_q = torch.nn.functional.log_softmax(logits_q, dim=-1)
+                    
                     if self.config.cache_mode is None:
                         logits_p = self.apply_fn(self.params, seqs)
                         probs_p_seq = torch.nn.functional.softmax(logits_p, dim=-1)
+                    # Move just this batch's probs to GPU
                     elif self.config.cache_mode == "cpu":
-                        probs_p_seq = probs_p[i:i+self.config.data_batch_size].to("cuda")
+                        probs_p_seq = self.probs_p[i:i+self.config.data_batch_size].to("cuda")
                     elif self.config.cache_mode == "gpu":
-                        probs_p_seq = probs_p[i:i+self.config.data_batch_size]
+                        probs_p_seq = self.probs_p[i:i+self.config.data_batch_size]
                     else:
                         raise ValueError(f"Invalid cache mode: {self.config.cache_mode}")
+                    
                     kl_seq = torch.nn.functional.kl_div(logprobs_q, probs_p_seq, reduction="none").sum(dim=-1)
                     mask = seqs != self.tokenizer.pad_token_id
-                    kl_sum += torch.sum(kl_seq[mask])
-                    count += torch.sum(mask)
+                    kl_seq_masked = kl_seq[mask]
+                    if self.config.reduction == "mean":
+                        kl_sum += torch.sum(kl_seq_masked)
+                        count += torch.sum(mask)
+                    elif self.config.reduction is None:
+                        kl_sum[i:i+self.config.data_batch_size] = kl_seq_masked.sum(dim=-1)
+                        count[i:i+self.config.data_batch_size] = mask.sum(dim=-1)
+
                 kl_term = kl_sum / count
-                l2_term = 0
                 if self.config.l2_reg:
-                    b_sq = (b @ b) if b is not None else 0
-                    l2_term = 0.5 * self.config.l2_reg * b_sq
+                    b_sq = b @ b if b else 0
+                    l2_term = 1/2 * self.config.l2_reg * b_sq
+                else:
+                    l2_term = 0
                 return kl_term * multiplier + l2_term
             return kl_fn
 
@@ -430,7 +468,11 @@ class PythiaEstimator(VolumeEstimator):
             self.val_data2, self.probs_p2 = self._prepare_dataset(self.config.dataset2, self.config.text_key2, self.config.val_size2)
 
         def kl_fn_factory(val_data, probs, multiplier=1):
-            def kl_fn(a, b):
+            def kl_fn(a, b, mults=None):
+                if mults:
+                    if mults.shape[0] != 1:
+                        raise ValueError(f"Invalid mults: {mults}; reduction = None not supported for pythia")
+                    b = mults[0] * b
                 if not isinstance(b, torch.Tensor):
                     b = torch.tensor(b)
                 params_q = a + b
@@ -533,7 +575,11 @@ class ConvNextEstimator(VolumeEstimator):
         logits_p = self.apply_fn(self.params, self.val_data)
         probs_p = torch.nn.functional.softmax(logits_p, dim=-1)
         
-        def kl_fn(a, b):
+        def kl_fn(a, b, mults=None):
+            if mults:
+                if mults.shape[0] != 1:
+                    raise ValueError(f"Invalid mults: {mults}; reduction = None not supported for convnext")
+                b = mults[0] * b
             params_q = a + b
             logits_q = self.apply_fn(params_q, self.val_data)
             logprobs_q = torch.nn.functional.log_softmax(logits_q, dim=-1)

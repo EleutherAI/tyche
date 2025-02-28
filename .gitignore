@@ -175,4 +175,4 @@ cython_debug/
 
 *.csv
 *.json
-*.log
+*.log.vscode/

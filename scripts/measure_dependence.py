@@ -380,7 +380,7 @@ def main():
     # Calculate dependence measures
     joint_ref = (result.estimates['joint'] - result.estimates['ref']).mean()
     marginal_ref = (result.estimates['marginal1'] + result.estimates['marginal2'] - 2 * result.estimates['ref']).mean()
-    min_marginal = min(result.estimates['marginal1'].mean(), result.estimates['marginal2'].mean())
+    min_marginal = min(result.estimates['marginal1'].mean() - result.estimates['ref'].mean(), result.estimates['marginal2'].mean() - result.estimates['ref'].mean())
     normalized_dependence = 1 - (joint_ref - marginal_ref)/(marginal_ref - min_marginal)
     
     print("\nDependence measures:")

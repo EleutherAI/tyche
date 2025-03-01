@@ -41,7 +41,7 @@ def find_radius_vectorized(center, vecs, cutoff, fn, *,
 
     device = vecs[0].device
     # Compute losses for each vector at current guess multiplier
-    vec_losses = torch.stack([fn(center, vecs[i], torch.tensor([init_mult])) for i in range(batch_size)])
+    vec_losses = torch.stack([fn(center, vecs[i], torch.tensor([init_mult], device=device)) for i in range(batch_size)])
     # loss at center
     center_losses = torch.stack([fn(center, 0)] * batch_size)
 

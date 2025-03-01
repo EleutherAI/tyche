@@ -8,8 +8,8 @@ from .math import log, cos, sinc, gaussint_ln_noncentral_erf, log_hyperball_volu
 from .vectors import ImplicitVector, ImplicitRandomVector
 
 def find_radius_vectorized(center, vecs, cutoff, fn, *,
-                           rtol=1e-1,  
-                           init_mult=1, iters=10, jump=2.0):
+                           rtol=1e-1, iters=10, allow_unconverged=False,
+                           init_mult=1, jump=2.0):
     """
     Find the basin radius for a function along a batch of direction vectors.
     This uses a binary search, multiplying by `jump` when unbounded above.
@@ -35,7 +35,6 @@ def find_radius_vectorized(center, vecs, cutoff, fn, *,
         - The actual function evaluation is not vectorized (difficult in Torch)
         - Assumes `fn` is monotonic (but often works even if it isn't)
         - The basin radius is mults * norm(vecs), not mults
-        - Fails silently if `iters` is reached (TODO: raise an error?)
     """
     # number of direction vectors
     batch_size = len(vecs)
@@ -60,7 +59,13 @@ def find_radius_vectorized(center, vecs, cutoff, fn, *,
 
     while (abs(deltas - cutoff) > cutoff * rtol).any():
         if iters == 0:
-            raise ValueError("Maximum number of iterations reached without converging")
+            if allow_unconverged:
+                print(f"\n{cutoff = }")
+                print(f"{abs(deltas - cutoff) / cutoff = }")
+                print("[WARN] Maximum number of iterations reached without converging")
+                break
+            else:
+                raise ValueError("Maximum number of iterations reached without converging")
 
         # Compute losses for each vector at current guess multiplier
         vec_losses = torch.stack([fn(center, vecs[i], mults[i]) for i in range(batch_size)])
@@ -118,6 +123,8 @@ def get_estimates_vectorized_gauss(n,
                                    y_tol=5,
                                    seed=42,
                                    with_tqdm=True,
+                                   init_mult=1,
+                                   rtol=1e-1,
                                    **kwargs):
     implicit = isinstance(params, ImplicitVector)
 
@@ -145,7 +152,7 @@ def get_estimates_vectorized_gauss(n,
             assert batch_size == 1, "batch_size must be 1 for implicit vectors"
             vecs = [ImplicitRandomVector(seed+i, params)]
         else:
-            vecs = torch.randn(batch_size, D, device=center.device)
+            vecs = torch.randn(batch_size, D, device=center.device, dtype=center.dtype)
 
         if debug:
             print("after randn")
@@ -167,7 +174,7 @@ def get_estimates_vectorized_gauss(n,
         if debug:
             print_gpu_memory()
 
-        kwargs = {'cutoff': 1e-3, 'fn': fn, 'iters': 100, 'rtol': 1e-2, **kwargs}
+        kwargs = {'cutoff': 1e-3, 'fn': fn, 'iters': 100, 'rtol': rtol, 'init_mult': init_mult, **kwargs}
         mults, deltas = find_radius_vectorized(center, vecs, **kwargs)
 
         x1 = mults * props

@@ -79,7 +79,7 @@ def pythia_cutoff(testing=False, adam=False, eps=1e-5):
     with open(os.path.join(RESULTS_DIR, f"pythia_cutoff{suff}.pkl"), "wb") as f:
         pickle.dump((results, cfg), f)
 
-def convnext_cutoff(testing=False, adam=False, poison=False, eps=1e-5):
+def convnext_cutoff(testing=False, adam=False, poison=False, eps=1e-5, allow_unconverged=False):
     cfg = VolumeConfig(model_type="convnext", 
                         model_name="b16pai_p4" if poison else "b16pai_p001",
                         tol=5,
@@ -89,6 +89,7 @@ def convnext_cutoff(testing=False, adam=False, poison=False, eps=1e-5):
                         preconditioner_type="adam" if adam else None,
                         preconditioner_eps=eps,
                         iters=100,
+                        allow_unconverged=allow_unconverged,
                         )
 
     cutoffs = np.array(logspace(1e-6, 1e2, 9))
@@ -307,6 +308,7 @@ if __name__ == "__main__":
     parser.add_argument("--results-dir", type=str, 
                        default=os.path.join(BASIN_VOLUME_DIR, "results_default"),
                        help="Directory to store results")
+    parser.add_argument("--allow-unconverged", action="store_true")
     args = parser.parse_args()
 
     # Set up results directory
@@ -321,7 +323,7 @@ if __name__ == "__main__":
         case "pythia_cutoff":
             pythia_cutoff(args.test, args.adam, args.eps)
         case "convnext_cutoff":
-            convnext_cutoff(args.test, args.adam, args.poison, args.eps)
+            convnext_cutoff(args.test, args.adam, args.poison, args.eps, args.allow_unconverged)
         case "pythia_chkpts":
             pythia_chkpts(args.test, args.adam)
         case "convnext_chkpts":

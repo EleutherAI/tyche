@@ -32,6 +32,7 @@ class VolumeConfig:
     seed: int = 42
     tqdm: bool = True
     debug: bool = False
+    reduction: Optional[Literal["mean"]] = "mean" # Reduction over the batch dimension
     iters: int = 10
     allow_unconverged: bool = False
     rtol: float = 1e-1
@@ -64,6 +65,8 @@ class VolumeConfig:
     preconditioner_eps: float = 1e-5
     preconditioner_exponent: float = 0.5
     adam_order: int = 2  # 1 for exp_avg, 2 for exp_avg_sq
+
+    last_token_only: bool = False
 
 class VolumeEstimator(ABC):
     def __init__(self, config: VolumeConfig):
@@ -133,7 +136,7 @@ class VolumeEstimator(ABC):
             iters=self.config.iters,
             allow_unconverged=self.config.allow_unconverged,
             init_mult=self.config.init_mult,
-            rtol=self.config.rtol
+            rtol=self.config.rtol,
         )
     
     @classmethod
@@ -206,7 +209,6 @@ class CausalLMEstimator(VolumeEstimator):
         print(f"{tokens.shape=}")
         tokens = tokens[:self.config.val_size]
         self.val_data = tokens.to("cuda")
-        
         if self.config.cache_mode:
             # Process sequences data_batch_size at a time and store probs on CPU
             probs_p_list = []
@@ -225,25 +227,46 @@ class CausalLMEstimator(VolumeEstimator):
         else:
             self.probs_p = None
         
-        def kl_fn(a, b):
+        def kl_fn(a, b, mults=None):
+            def compute_multiplier(b, mults, i):
+                if mults is None:
+                    return b
+                elif mults.shape[0] == self.val_data.shape[0]:
+                    return mults[i] * b
+                elif mults.shape[0] == 1:
+                    return mults[0] * b
+                else:
+                    raise ValueError(f"Invalid mults: {mults}")
+
             if self.config.implicit_vectors:
                 assert a == self.params, "a must be the same as the model parameters"
             else:
+                b = compute_multiplier(b, mults, 0)
                 params_q = a + b
-            kl_sum = 0.0
-            count = 0
-            
+            if self.config.reduction == "mean":
+                kl_sum = 0.0
+                count = 0
+            elif self.config.reduction is None:
+                kl_sum = torch.zeros(self.val_data.shape[0], device=self.val_data.device)
+                count = torch.zeros(self.val_data.shape[0], device=self.val_data.device)
+            else:
+                raise ValueError(f"Invalid reduction: {self.config.reduction}")
             # Process one batch at a time
+
+            selection = slice(None) if not self.config.last_token_only else slice(-1)
             for i in range(0, self.val_data.shape[0], self.config.data_batch_size):
                 seqs = self.val_data[i:i+self.config.data_batch_size]
                 if self.config.implicit_vectors:
                     if b:
-                        a.add_(b)
-                    logits_q = self.apply_fn(a, seqs)
+                        a.add_(compute_multiplier(b, mults, i))
+                    logits_q = self.apply_fn(a, seqs)[..., selection]
                     if b:
-                        a.sub_(b)
+                        a.sub_(compute_multiplier(b, mults, i))
                 else:
-                    logits_q = self.apply_fn(params_q, seqs)
+                    if mults and mults.shape[0] == self.val_data.shape[0]:
+                        b = compute_multiplier(b, mults, i)
+                        params_q = a + b
+                    logits_q = self.apply_fn(params_q, seqs)[..., selection]
                 logprobs_q = torch.nn.functional.log_softmax(logits_q, dim=-1)
                 
                 if self.config.cache_mode is None:
@@ -260,9 +283,13 @@ class CausalLMEstimator(VolumeEstimator):
                 kl_seq = torch.nn.functional.kl_div(logprobs_q, probs_p_seq, reduction="none").sum(dim=-1)
                 mask = seqs != self.tokenizer.pad_token_id
                 kl_seq_masked = kl_seq[mask]
-                kl_sum += torch.sum(kl_seq_masked)
-                count += torch.sum(mask)
-            
+                if self.config.reduction == "mean":
+                    kl_sum += torch.sum(kl_seq_masked)
+                    count += torch.sum(mask)
+                elif self.config.reduction is None:
+                    kl_sum[i:i+self.config.data_batch_size] = kl_seq_masked.sum(dim=-1)
+                    count[i:i+self.config.data_batch_size] = mask.sum(dim=-1)
+
             kl_term = kl_sum / count
             if self.config.l2_reg:
                 b_sq = b @ b if b else 0
@@ -325,7 +352,11 @@ class PythiaEstimator(VolumeEstimator):
         logits_p = self.apply_fn(self.params, self.val_data)
         probs_p = torch.nn.functional.softmax(logits_p, dim=-1)
         
-        def kl_fn(a, b):
+        def kl_fn(a, b, mults=None):
+            if mults:
+                if mults.shape[0] != 1:
+                    raise ValueError(f"Invalid mults: {mults}; reduction = None not supported for pythia")
+                b = mults[0] * b
             params_q = a + b
             logits_q = self.apply_fn(params_q, self.val_data)
             logprobs_q = torch.nn.functional.log_softmax(logits_q, dim=-1)
@@ -395,7 +426,11 @@ class ConvNextEstimator(VolumeEstimator):
         logits_p = self.apply_fn(self.params, self.val_data)
         probs_p = torch.nn.functional.softmax(logits_p, dim=-1)
         
-        def kl_fn(a, b):
+        def kl_fn(a, b, mults=None):
+            if mults:
+                if mults.shape[0] != 1:
+                    raise ValueError(f"Invalid mults: {mults}; reduction = None not supported for convnext")
+                b = mults[0] * b
             params_q = a + b
             logits_q = self.apply_fn(params_q, self.val_data)
             logprobs_q = torch.nn.functional.log_softmax(logits_q, dim=-1)

@@ -150,7 +150,7 @@ def get_estimates_vectorized_gauss(n,
             assert batch_size == 1, "batch_size must be 1 for implicit vectors"
             vecs = [ImplicitRandomVector(seed+i, params)]
         else:
-            vecs = torch.randn(batch_size, D, device=center.device)
+            vecs = torch.randn(batch_size, D, device=center.device, dtype=center.dtype)
 
         if debug:
             print("after randn")

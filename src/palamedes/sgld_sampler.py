@@ -174,7 +174,6 @@ def sgld(
                 cost = logit_loss(logits_init[indices], logits)
             elif cost_fn == "cross_entropy":
                 cost = t.nn.functional.cross_entropy(logits, labels)
-                print(cost.item())
             sgld_dict["loss"].append(cost.item())
 
             cost.backward()

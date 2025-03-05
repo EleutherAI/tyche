@@ -108,8 +108,9 @@ def sgld(
 
     if isinstance(dataset, t.utils.data.DataLoader):
         # Move entire dataset to GPU before cycling through it
+        dtype = t.float16 if fp16 else t.float32
         dataset_list = [
-            (inputs.to(device), labels.to(device)) for inputs, labels in dataset
+            (inputs.to(device, dtype=dtype), labels.to(device, dtype=dtype)) for inputs, labels in dataset
         ]
         dataset_iter = cycle(dataset_list)
 
@@ -122,18 +123,22 @@ def sgld(
             .to(device)
         )
 
-        all_inputs, all_labels = (
-            (None, None)  # not implementing right now bc we don't need it for crossentropy
-            if isinstance(dataset, t.utils.data.DataLoader)
-            else dataset
-        )
+        if isinstance(dataset, t.utils.data.DataLoader):
+            # get logits for each batch
+            logits_init = {}
+            for inputs, labels in dataset_list:
+                model_outputs = model(inputs)
+                logits_init[inputs] = (model_outputs["logits"] if "logits" in model_outputs else model_outputs.logits)
 
-        if all_inputs is not None:
+        else:
+            all_inputs, all_labels = dataset
+
+            model_outputs = model(all_inputs)
 
             logits_init = (
-                model(all_inputs)["logits"]
-                if "logits" in model(all_inputs)
-                else model(all_inputs).logits
+                model_outputs["logits"]
+                if "logits" in model_outputs
+                else model_outputs.logits
             )
 
         preconditioner = t.ones_like(w_init, device=device)
@@ -164,14 +169,19 @@ def sgld(
                 indices = t.randint(0, dataset[0].shape[0], (sgld_params.batch_size,))
                 inputs, labels = dataset[0][indices], dataset[1][indices]
 
+            model_outputs = model(inputs)
+    
             logits = (
-                model(inputs)["logits"]
-                if "logits" in model(inputs)
-                else model(inputs).logits
+                model_outputs["logits"]
+                if "logits" in model_outputs
+                else model_outputs.logits
             )
 
             if cost_fn == "KL":
-                cost = logit_loss(logits_init[indices], logits)
+                if isinstance(dataset, t.utils.data.DataLoader):
+                    cost = logit_loss(logits_init[inputs], logits)
+                else:
+                    cost = logit_loss(logits_init[indices], logits)
             elif cost_fn == "cross_entropy":
                 cost = t.nn.functional.cross_entropy(logits, labels)
             sgld_dict["loss"].append(cost.item())

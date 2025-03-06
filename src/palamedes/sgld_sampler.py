@@ -17,7 +17,10 @@ class SGLDParams:
 
     eps: float = 1  # total step size of SGLD step
     gamma: float = (
-        1  # radius of the ball, controls how far we stray away from w* (higher is more exploration)
+        1  # coefficient of localization term, controls how far we stray away from w* (higher is less exploration)
+    )
+    gamma_prior: float = (
+        0  # coefficient of prior term, controls how far we stray away from zero (higher is less exploration)
     )
     nbeta: float = (
         1  # temperature (up to multiplication by data set size), scales the SGD part (as opposed to the noise part)
@@ -208,11 +211,12 @@ def sgld(
                 )
 
             localization_grad = (w_init - w) * sgld_params.gamma
-
+            prior_grad = -w * sgld_params.gamma_prior
+            
             total_grad = (
                 sgld_params.eps
                 / 2
-                * (sgld_params.nbeta * loss_grad + localization_grad)
+                * (sgld_params.nbeta * loss_grad + localization_grad + prior_grad)
             )  # we don't need to divide by batch size because cross entropy already averages over that
 
             total_grad = preconditioner * total_grad

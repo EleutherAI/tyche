@@ -123,11 +123,11 @@ def load_cifar10_splits(size: int = 512, seed: int = 42):
     }
 
 
-def load_cifar10_splits_dict(device, size: int = 512, seed: int = 42):
+def load_cifar10_splits_dict(device, size: int = 512, seed: int = 42, max_clean: int = 30000):
     """Returns splits with their labels as a dictionary"""
     ds = load_dataset("cifar10")
 
-    train_split = ds["train"].train_test_split(train_size=30000, seed=seed)
+    train_split = ds["train"].train_test_split(train_size=max_clean, seed=seed)
     poison_split = train_split["test"].add_column(
         "is_poison", [True] * len(train_split["test"])
     )
@@ -138,7 +138,7 @@ def load_cifar10_splits_dict(device, size: int = 512, seed: int = 42):
     # random subsets of clean and poison
     clean_split = clean_split.shuffle(seed=seed).select(range(size))
     poison_split = poison_split.shuffle(seed=seed).select(range(size))
-    val_ds = ds["test"].select(range(size))
+    val_ds = ds["test"].select(range(min(size, 10000)))
 
     transform = T.Compose([T.ToTensor()])
 

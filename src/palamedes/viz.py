@@ -65,7 +65,7 @@ def plot_sgld_metric(
         plt.plot(np.arange(len(avg)), avg, label="average")
     else:
         for i, d in enumerate(cleaned_dicts):
-            plt.plot(np.arange(len(d[metric])), d[metric], label=f"Run {i+1}")
+            plt.plot(np.arange(len(d[metric])), d[metric], '.-', label=f"Run {i+1}")
 
     plt.xlabel("Epoch")
     plt.ylabel(metric)

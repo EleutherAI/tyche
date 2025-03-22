@@ -2,6 +2,7 @@ from dataclasses import dataclass
 import datetime
 import json
 import os
+import pickle
 from typing import List, Optional
 from jaxtyping import Float
 from torch import Tensor
@@ -9,6 +10,7 @@ import torch as t
 import copy
 from tqdm import tqdm
 from tyche.convnext import load_cifar10_splits_dict, load_convnext_checkpoint
+import argparse
 
 
 @dataclass
@@ -154,7 +156,7 @@ def sgld(
         t.save(w_init, f"{save_dir}/model_0.pt")
         print(f"Saving to {save_dir}")
 
-    for i in range(sgld_params.num_steps):
+    for i in tqdm(range(sgld_params.num_steps)):
 
         if (
             sgld_params.checkpoint_every
@@ -249,49 +251,68 @@ def sgld(
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run SGLD sampling")
+    parser.add_argument("--eps", type=float, default=1e-10, help="Total step size")
+    parser.add_argument("--gprior", type=float, default=None, help="Coefficient of prior term")
+    parser.add_argument("--nbeta", type=float, default=1_000_000, help="Temperature scaling (beta * dataset size)")
+    parser.add_argument("--cuda", type=int, default=0, help="CUDA device index")
+    parser.add_argument("--ralpha", type=float, default=0.99, help="RMSProp alpha")
+    parser.add_argument("--rlambda", type=float, default=1e-4, help="RMSProp lambda")
+    parser.add_argument("--num_steps", type=int, default=10_000, help="Number of steps")
+    args = parser.parse_args()
+    
+    cuda_device = args.cuda
+    data_dir = "/mnt/ssd-1/adam/basin-volume/data"
 
-    device = t.device("cuda:7" if t.cuda.is_available() else "cpu")
+    device = t.device(f"cuda:{cuda_device}" if t.cuda.is_available() else "cpu")
 
-    cifar10_ds = load_cifar10_splits_dict(size=10000, device=device)
+    if device.type == "cpu":
+        raise ValueError("CUDA device not found")
 
-    val_ds = cifar10_ds["val"].to(device)
+    with open(data_dir + "/cifar10_ds.pkl", 'rb') as f:
+        cifar10_ds = pickle.load(f)
+
     clean_ds = cifar10_ds["clean"].to(device)
-    poisoned_ds = cifar10_ds["poison"].to(device)
-    val_ds_labels = cifar10_ds["val_labels"].to(device)
     clean_ds_labels = cifar10_ds["clean_labels"].to(device)
-    poisoned_ds_labels = cifar10_ds["poison_labels"].to(device)
+
+    sigma = 0.03358687
+    
+    # Use command line args.gprior if provided, otherwise calculate from sigma
+    gamma_prior = args.gprior if args.gprior is not None else 1/sigma**2
 
     params = SGLDParams(
-        eps=1e-4,
-        gamma=0,
-        nbeta=1000,
-        batch_size=512,
-        num_steps=10000,
-        checkpoint_every=100,
-        preconditioner="rmsprop",
+        eps=args.eps,  # total step size
+        gamma=0,  # localization term
+        gamma_prior=gamma_prior,  # prior term
+        batch_size=4096,  # batch size
+        nbeta=args.nbeta,  # this is not beta, but beta * n, where n= |whole dataset|
+        num_steps=args.num_steps,  # number of steps
+        checkpoint_every=None,  # If integer, saves weights every checkpoint_every steps
+        save_dir=None,  # if not specified, it defaults to /mnt/ssd-1/louis/palamedes/sgld_samples/{current_time}
+        # device=device,
+        preconditioner="rmsprop",  # "none" or "rmsprop
+        alpha_rmsprop=args.ralpha,  # rmsprop parameter
+        lambda_rmsprop=args.rlambda,  # rmsprop parameter
     )
+
+    hyparams = ['eps', 'nbeta', 'batch_size', 'gamma_prior', 'num_steps', 'alpha_rmsprop', 'lambda_rmsprop']
+    hyparam_str = '_'.join([f'{k}={params.__dict__[k]:.2g}' for k in hyparams])
+    print(hyparam_str)
 
     RUNS_DIR = "/mnt/ssd-1/adam/basin-volume/runs"
 
-    models_clean = [
-        load_convnext_checkpoint(
-            RUNS_DIR + f"/b16pai_p001/checkpoint-{2**(step+1)}", device=device
-        )
-        for step in range(16)
-    ]
-
-    model = models_clean[-1]
+    model = load_convnext_checkpoint(
+        RUNS_DIR + f"/b16pai_p001/checkpoint-{2**(16)}", device=device
+    )
 
     sgld_dict = sgld(
         model,
         params,
-        dataset=[val_ds, val_ds_labels],
+        dataset=[clean_ds, clean_ds_labels],
         cost_fn="KL",
         device=device,
+        fp16=True,
     )
 
-    # save sgld_dict as json
-
-    with open("sgld_dict.json", "w") as f:
-        json.dump(sgld_dict, f)
-        f.close()
+    with open(data_dir + f'/sgld_{hyparam_str}.pkl', 'wb') as f:
+        pickle.dump(sgld_dict, f)

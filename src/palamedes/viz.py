@@ -5,6 +5,8 @@ import os
 import torch as t
 import numpy as np
 
+from typing import Optional
+
 
 def plot_sgld_metric(
     sgld_dicts=[],
@@ -12,6 +14,7 @@ def plot_sgld_metric(
     title="SGLD Loss",
     average: bool = False,
     log_scale: bool = False,
+    plot_kwargs: dict = {},
 ):
     import matplotlib.pyplot as plt
     import numpy as np
@@ -37,22 +40,20 @@ def plot_sgld_metric(
     # Set up plot
     hyperparams = cleaned_dicts[0]["params"]
     # Format parameters with scientific notation if they're very small or large
-    eps_str = (
-        f"{hyperparams.eps:.1e}"
-        if abs(hyperparams.eps) >= 1000 or abs(hyperparams.eps) <= 0.001
-        else str(hyperparams.eps)
-    )
-    gamma_str = (
-        f"{hyperparams.gamma:.1e}"
-        if abs(hyperparams.gamma) >= 1000 or abs(hyperparams.gamma) <= 0.001
-        else str(hyperparams.gamma)
-    )
-    nbeta_str = (
-        f"{hyperparams.nbeta:.1e}"
-        if abs(hyperparams.nbeta) >= 1000 or abs(hyperparams.nbeta) <= 0.001
-        else str(hyperparams.nbeta)
-    )
-    title = f"eps={eps_str}, gamma={gamma_str}, nbeta={nbeta_str}, batch_size={hyperparams.batch_size}, num_steps={hyperparams.num_steps}"
+    def format_param(param):
+        return (
+            f"{param:.2e}"
+            if abs(param) >= 1000 or abs(param) <= 0.001
+            else f"{param:.2f}"
+        )
+    eps_str = format_param(hyperparams.eps)
+    # gamma_str = format_param(hyperparams.gamma)
+    nbeta_str = format_param(hyperparams.nbeta)
+    gamma_prior_str = format_param(hyperparams.gamma_prior)
+
+    title = f"eps={eps_str}, gamma_prior={gamma_prior_str}, nbeta={nbeta_str},\n\
+        batch_size={hyperparams.batch_size}, num_steps={hyperparams.num_steps}\n\
+        alpha={hyperparams.alpha_rmsprop}, lambda={hyperparams.lambda_rmsprop}"
     fig = plt.figure(figsize=(5, 3))
 
     # Plot data
@@ -65,12 +66,14 @@ def plot_sgld_metric(
         plt.plot(np.arange(len(avg)), avg, label="average")
     else:
         for i, d in enumerate(cleaned_dicts):
-            plt.plot(np.arange(len(d[metric])), d[metric], '.-', label=f"Run {i+1}")
+            plt.plot(np.arange(len(d[metric])), d[metric], '.-', label=f"Run {i+1}", **plot_kwargs)
 
     plt.xlabel("Epoch")
     plt.ylabel(metric)
     if log_scale:
         plt.yscale("log")
+    # grid lines
+    plt.grid(True)
     plt.title(title)
     plt.legend()
 

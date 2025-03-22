@@ -1,6 +1,9 @@
 runs/
 
-*val.jsonl
+data/sgld*.pkl
+data/MNIST
+data/cifar10*
+data/pile*
 
 *.tgz
 # *.pkl

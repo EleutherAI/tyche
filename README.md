@@ -1,8 +1,5 @@
-# Tyche
+# Tyche: Precisely estimating the volume of basins in neural net parameter space corresponding to interpretable behaviors
 *According to the Pausanias in his Description of Greece, Palamedes created the first pair of dice and gave them as an offering to Tyche.*
-
-Precisely estimating the volume of basins in neural net parameter space corresponding to interpretable behaviors
-
 
 ## Installation
 

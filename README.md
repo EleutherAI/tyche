@@ -7,6 +7,7 @@ Precisely estimating the volume of basins in neural net parameter space correspo
 * Python 3.11 is recommended
 * `pip install -e .` or `pip install .`
 
+This installs two packages: `tyche` and `palamedes`.
 
 ## Usage (HuggingFace models)
 
@@ -15,7 +16,7 @@ from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 
-from basin_volume import VolumeConfig, VolumeEstimator
+from tyche import VolumeConfig, VolumeEstimator
 
 # Load any CausalLM model, tokenizer, and dataset
 model = AutoModelForCausalLM.from_pretrained("EleutherAI/pythia-14m")
@@ -75,7 +76,7 @@ See `notebooks/bigmlp_basins.ipynb` for usage.
 
 `notebooks/`: Jupyter notebooks
 
-`src/basin_volume/`: package source
+`src/tyche/`: package source
 
 `.../convnext.py`: ConvNeXt on `cifar10`
 
@@ -92,6 +93,8 @@ See `notebooks/bigmlp_basins.ipynb` for usage.
 `.../utils.py`: misc helpful tools
 
 `.../volume.py`: core volume-estimation code
+
+`src/palamedes/`: Palamedes package source
 
 `scripts/`: command-line scripts (Python and shell)
 

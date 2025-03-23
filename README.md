@@ -9,6 +9,8 @@ Precisely estimating the volume of basins in neural net parameter space correspo
 
 This installs two packages: `tyche` and `palamedes`.
 
+`palamedes` is a new project that uses SGLD to achieve a better measurement of basin volume.
+
 ## Usage (HuggingFace models)
 
 ```python

@@ -4,6 +4,7 @@ import json
 import os
 import pickle
 from typing import List, Optional
+from itertools import cycle as iter_cycle
 from jaxtyping import Float
 from torch import Tensor
 import torch as t
@@ -15,25 +16,47 @@ import argparse
 
 @dataclass
 class SGLDParams:
-    """See https://arxiv.org/pdf/2308.12108#page=20 for details."""
+    """Parameters for Stochastic Gradient Langevin Dynamics (SGLD) sampling.
+    
+    Attributes:
+        eps: Total step size of SGLD step
+        gamma: Coefficient of localization term. Controls exploration distance from w*
+               (higher values = less exploration)
+        gamma_prior: Coefficient of prior term. Controls exploration distance from zero
+                    (higher values = less exploration)
+        nbeta: Temperature parameter (multiplied by dataset size).
+               Scales the SGD component relative to noise
+        num_steps: Number of SGLD iterations to perform
+        batch_size: Mini-batch size for gradient computation
+        checkpoint_every: Optional; Save model checkpoint every n steps
+        save_dir: Optional; Directory path for saving checkpoints
+        preconditioner: Gradient preconditioner type ("none" or "rmsprop")
+        alpha_rmsprop: RMSprop momentum parameter (used if preconditioner="rmsprop")
+        lambda_rmsprop: RMSprop stability parameter (used if preconditioner="rmsprop")
+    
+    Reference: https://arxiv.org/pdf/2308.12108#page=20
+    """
 
-    eps: float = 1  # total step size of SGLD step
-    gamma: float = (
-        1  # coefficient of localization term, controls how far we stray away from w* (higher is less exploration)
-    )
-    gamma_prior: float = (
-        0  # coefficient of prior term, controls how far we stray away from zero (higher is less exploration)
-    )
-    nbeta: float = (
-        1  # temperature (up to multiplication by data set size), scales the SGD part (as opposed to the noise part)
-    )
+    eps: float = 1
+    gamma: float = 1
+    gamma_prior: float = 0
+    nbeta: float = 1
     num_steps: int = 1
-    batch_size: int = 128  # batch size
-    checkpoint_every: Optional[int] = None  # checkpoint every n steps
-    save_dir: Optional[str] = None  # directory to save checkpoints
-    preconditioner: str = "none"  # preconditioner to use, "none" or "rmsprop"
-    alpha_rmsprop: float = 0.99  # rmsprop alpha
-    lambda_rmsprop: float = 1e-5  # rmsprop eps
+    batch_size: int = 128
+    checkpoint_every: Optional[int] = None
+    save_dir: Optional[str] = None
+    preconditioner: str = "none"
+    alpha_rmsprop: float = 0.99
+    lambda_rmsprop: float = 1e-5
+
+    def __post_init__(self):
+        """Validate parameters after initialization."""
+        if self.preconditioner not in ["none", "rmsprop"]:
+            raise ValueError("preconditioner must be either 'none' or 'rmsprop'")
+        if self.eps <= 0:
+            raise ValueError("eps must be positive")
+        if self.batch_size <= 0:
+            raise ValueError("batch_size must be positive")
 
 
 def logit_loss(
@@ -66,34 +89,12 @@ def rms_preconditioner(
 
     return preconditioner, v_rmsprop
 
-def cycle(iterable, limit=None):
-    """
-    Use this function to cycle through a dataloader. Unlike itertools.cycle, this function doesn't cache
-    values in memory.
-
-    Note: Be careful with cycling a shuffled interable. The shuffling will be different for each loop dependent on the seed
-    state, unlike with itertools.cycle.
-
-    :param iterable: Iterable to cycle through
-    :param limit: Number of cycles to go through. If None, cycles indefinitely.
-    """
-    index = 0
-    if limit is None:
-        limit = float("inf")
-    while True:
-        for x in iterable:
-            if index >= limit:
-                return
-            else:
-                yield x
-            index += 1
-
 def sgld(
     model,
     sgld_params: SGLDParams,
     device,
     dataset: List | t.utils.data.DataLoader,
-    cost_fn: str = "cross_entropy",  # "KL" or "cross_entropy" or "zero"
+    cost_type: str = "cross_entropy",  # "KL" or "cross_entropy" or "zero"
     fp16: bool = False,
     mala: bool = False,  # Metropolis step, not yet implemented
 ):
@@ -118,7 +119,7 @@ def sgld(
         dataset_list = [
             (inputs.to(device, dtype=dtype), labels.to(device, dtype=dtype)) for inputs, labels in dataset
         ]
-        dataset_iter = cycle(dataset_list)
+        dataset_iter = iter_cycle(dataset_list)
 
     with t.no_grad():
 
@@ -170,7 +171,7 @@ def sgld(
 
         # TODO define a local fn to compute cost --> exp(delta cost)
 
-        if cost_fn != "zero":
+        if cost_type != "zero":
             if isinstance(dataset, t.utils.data.DataLoader):
                 inputs, labels = next(dataset_iter)
             else:
@@ -185,12 +186,12 @@ def sgld(
                 else model_outputs.logits
             )
 
-            if cost_fn == "KL":
+            if cost_type == "KL":
                 if isinstance(dataset, t.utils.data.DataLoader):
                     cost = logit_loss(logits_init[inputs], logits)
                 else:
                     cost = logit_loss(logits_init[indices], logits)
-            elif cost_fn == "cross_entropy":
+            elif cost_type == "cross_entropy":
                 cost = t.nn.functional.cross_entropy(logits, labels)
             sgld_dict["loss"].append(cost.item())
 
@@ -251,7 +252,7 @@ def sgld(
 
             sgld_dict["gradient_norm"].append(t.norm(loss_grad).item())
 
-            if cost_fn != "zero" and t.isnan(cost).any():
+            if cost_type != "zero" and t.isnan(cost).any():
                 print("Cost is NaN, returning")
                 return sgld_dict
     return sgld_dict
@@ -316,7 +317,7 @@ if __name__ == "__main__":
         model,
         params,
         dataset=[clean_ds, clean_ds_labels],
-        cost_fn="KL",
+        cost_type="KL",
         device=device,
         fp16=True,
     )

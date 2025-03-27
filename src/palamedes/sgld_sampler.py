@@ -95,6 +95,7 @@ def sgld(
     dataset: List | t.utils.data.DataLoader,
     cost_fn: str = "cross_entropy",  # "KL" or "cross_entropy" or "zero"
     fp16: bool = False,
+    mala: bool = False,  # Metropolis step, not yet implemented
 ):
     """Run SGLD on the model using the given dataset and cost function."""
 
@@ -167,6 +168,8 @@ def sgld(
 
         model.zero_grad()
 
+        # TODO define a local fn to compute cost --> exp(delta cost)
+
         if cost_fn != "zero":
             if isinstance(dataset, t.utils.data.DataLoader):
                 inputs, labels = next(dataset_iter)
@@ -216,8 +219,7 @@ def sgld(
             prior_grad = -w * sgld_params.gamma_prior
             
             total_grad = (
-                sgld_params.eps
-                / 2
+                sgld_params.eps / 2
                 * (sgld_params.nbeta * loss_grad + localization_grad + prior_grad)
             )  # we don't need to divide by batch size because cross entropy already averages over that
 
@@ -228,6 +230,11 @@ def sgld(
                 * t.sqrt(t.tensor(sgld_params.eps))
                 * t.sqrt(preconditioner)
             )
+
+            # okay so eps/2 * preconditioner is our equivalent of tau in the Wikipedia article.
+            # which... is fine, we reject or accept according to pi and q
+            # pi really requires a cost function which we don't have yet
+            # q is weird and I don't understand it
 
             w = w + total_grad + gaussian_noise
             if fp16:

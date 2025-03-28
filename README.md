@@ -3,7 +3,7 @@
 
 ## Purpose
 
-This repo contains tool to measure the sizes of behavioral basins.
+This repo contains tool to measure the sizes of behavioral basins via Monte Carlo methods.
 
 A behavioral basin is a region in parameter space defined by functional behavior, such as loss on a dataset, rather than e.g. similarity of weight vectors.
 

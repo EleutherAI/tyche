@@ -18,7 +18,7 @@ The sizes of behavioral basins can be interpreted as a measure of the complexity
 
 This installs two packages: `tyche` and `palamedes`.
 
-`tyche` uses binary search to find the edge of a basin, the Huang et al volume estimator to estimate volume, custom Gaussian integral code to maintain precision for very high-dimensional integrals, and a preconditioner matrix to improve sample efficiency by alleviating "Jensen bias". It is fast but can lead to dramatic underestimates of basin size. As seen in "[Estimating the Probability of Sampling a Trained Neural Network at Random](https://arxiv.org/abs/2501.18812)".
+`tyche` uses binary search to find the edge of a basin, the Huang et al volume estimator to estimate volume, custom Gaussian integral code to maintain precision for very-high-dimensional integrals, and a preconditioner matrix to improve sample efficiency by alleviating "Jensen bias". It is fast but can lead to dramatic underestimates of basin size. As seen in "[Estimating the Probability of Sampling a Trained Neural Network at Random](https://arxiv.org/abs/2501.18812)".
 
 `palamedes` (WIP) is a new project that uses SGLD and thermodynamic integration to achieve a measurement of basin volume. It is slower than `tyche` but (once it's done) will give much more precise basin size measurements.
 

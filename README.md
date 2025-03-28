@@ -1,5 +1,15 @@
-# Tyche: Precisely estimating the volume of basins in neural net parameter space corresponding to interpretable behaviors
+# Tyche: Precisely estimating the sizes of basins in neural net parameter space corresponding to interpretable behaviors
 *According to Pausanias in his Description of Greece, Palamedes created the first pair of dice and gave them as an offering to Tyche.*
+
+## Purpose
+
+This repo contains tool to measure the sizes of behavioral basins.
+
+A behavioral basin is a region in parameter space defined by functional behavior, such as loss on a dataset, rather than e.g. similarity of weight vectors.
+
+"Size" here means total prior measure, where the prior is uniform (so that size = volume) or Gaussian (e.g. init distribution density).
+
+The sizes of behavioral basins can be interpreted as a measure of network complexity (by taking the negative logarithm). When the prior is normalized, they can also be interpreted as the prior probability of the basin-defining behavior.
 
 ## Installation
 
@@ -8,7 +18,11 @@
 
 This installs two packages: `tyche` and `palamedes`.
 
-`palamedes` is a new project that uses SGLD to achieve a better measurement of basin volume.
+`tyche` uses binary search to find the edge of a basin, the Huang et al volume estimator to estimate volume, custom Gaussian integral code to maintain precision for very high-dimensional integrals, and a preconditioner matrix to improve sample efficiency by alleviating "Jensen bias". It is fast but can lead to dramatic underestimates of basin size.
+
+`palamedes` (WIP) is a new project that uses SGLD and thermodynamic integration to achieve a measurement of basin volume. It is slower than `tyche` but (once it's done) will give much more precise basin size measurements.
+
+The remaining documentation is `tyche`-specific.
 
 ## Usage (HuggingFace models)
 

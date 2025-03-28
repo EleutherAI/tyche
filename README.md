@@ -9,7 +9,7 @@ A behavioral basin is a region in parameter space defined by functional behavior
 
 "Size" here means total prior measure, where the prior is uniform (so that size = volume) or Gaussian (e.g. init distribution density).
 
-The sizes of behavioral basins can be interpreted as a measure of network complexity (by taking the negative logarithm). When the prior is normalized, they can also be interpreted as the prior probability of the basin-defining behavior.
+The sizes of behavioral basins can be interpreted as a measure of the complexity of learned behaviors (by taking the negative logarithm). When the prior is normalized, they can also be interpreted as the prior probability of the basin-defining behavior.
 
 ## Installation
 

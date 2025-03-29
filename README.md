@@ -5,7 +5,7 @@
 
 This repo contains tool to measure the sizes of behavioral basins via Monte Carlo methods.
 
-A behavioral basin is a region in parameter space defined by functional behavior, such as loss on a dataset, rather than e.g. similarity of weight vectors.
+A behavioral basin is a region in parameter space defined by an anchor point (a particular set of parameters) and a metric of behavioral similarity. (We also refer to the size of the basin as the "local volume" of the anchor parameters.)
 
 "Size" here means total prior measure, where the prior is uniform (so that size = volume) or Gaussian (e.g. init distribution density).
 

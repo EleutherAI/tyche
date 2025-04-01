@@ -77,7 +77,7 @@ This setting controls how the original (unperturbed, center-of-basin) model outp
 
 ## Usage (models from the paper)
 
-An interface for ConvNeXt and Pythia is available through `src/basin_volume/estimator.py`, with example usage (similar to the HuggingFace interface above) in `scripts/expt_paper.py`.
+An interface for ConvNeXt and Pythia is available through `src/tyche/estimator.py`, with example usage (similar to the HuggingFace interface above) in `scripts/expt_paper.py`.
 
 The MLP on `digits` is implemented in JAX on the branch `jax-hybrid`, which has additional dependencies:
 

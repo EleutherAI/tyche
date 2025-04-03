@@ -5,9 +5,11 @@
 
 This repo contains tool to measure the sizes of behavioral basins via Monte Carlo methods.
 
-A behavioral basin is a region in parameter space defined by an anchor point (a particular set of parameters) and a metric of behavioral similarity. (We also refer to the size of the basin as the "local volume" of the anchor parameters.)
+A behavioral basin is a region in parameter space defined by an anchor point (a particular set of parameters) and a behavior-defining cost function. (We also refer to the size of the basin as the "local volume" of the anchor parameters.)
 
 "Size" here means total prior measure, where the prior is uniform (so that size = volume) or Gaussian (e.g. init distribution density).
+
+The cost functions we implement are (1) loss over a dataset of inputs and outputs, and (2) KL divergence (from the anchor point) over a dataset of inputs.
 
 The sizes of behavioral basins can be interpreted as a measure of the complexity of learned behaviors (by taking the negative logarithm). 
 

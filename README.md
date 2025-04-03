@@ -1,4 +1,4 @@
-# Tyche: Precisely estimating the sizes of basins in neural net parameter space corresponding to interpretable behaviors
+# Tyche: Estimating the sizes of basins in neural net parameter space corresponding to interpretable behaviors
 *She was often shown winged, wearing a crown, and bearing a sceptre and cornucopia; but she also appeared blindfolded and with various devices signifying uncertainty and risk. Among her monuments was a temple at Argos, where the legendary Palamedes is said to have dedicated to her the first set of dice.*
 
 ## Purpose

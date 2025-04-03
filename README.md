@@ -9,7 +9,9 @@ A behavioral basin is a region in parameter space defined by an anchor point (a 
 
 "Size" here means total prior measure, where the prior is uniform (so that size = volume) or Gaussian (e.g. init distribution density).
 
-The sizes of behavioral basins can be interpreted as a measure of the complexity of learned behaviors (by taking the negative logarithm). When the prior is normalized, they can also be interpreted as the prior probability of the basin-defining behavior.
+The sizes of behavioral basins can be interpreted as a measure of the complexity of learned behaviors (by taking the negative logarithm). 
+
+When the prior is normalized, they can also be interpreted as the prior probability of the basin-defining behavior.
 
 ## Installation
 
@@ -18,7 +20,7 @@ The sizes of behavioral basins can be interpreted as a measure of the complexity
 
 This installs two packages: `tyche` and `palamedes`.
 
-`tyche` uses binary search to find the edge of a basin, the Huang et al volume estimator to estimate volume, custom Gaussian integral code to maintain precision for very-high-dimensional integrals, and a preconditioner matrix to improve sample efficiency by alleviating the "Jensen gap". It is fast but can lead to dramatic underestimates of basin size. As seen in "[Estimating the Probability of Sampling a Trained Neural Network at Random](https://arxiv.org/abs/2501.18812)".
+`tyche` uses binary search to find the edge of a basin, a quick-and-dirty volume estimator to estimate volume, custom Gaussian-integral code to maintain numerical stability for very-high-dimensional Gaussian integrals, and a preconditioner matrix to ameliorate underestimation. It is very fast but can lead to dramatic underestimates of basin size. As seen in "[Estimating the Probability of Sampling a Trained Neural Network at Random](https://arxiv.org/abs/2501.18812)".
 
 `palamedes` (WIP) is a new project that uses SGLD and thermodynamic integration to achieve a measurement of basin volume. It is slower than `tyche` but (once it's done) will give much more precise basin size measurements.
 

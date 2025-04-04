@@ -272,8 +272,8 @@ class CausalLMEstimator(VolumeEstimator):
                 if self.config.cache_mode is None:
                     logits_p = self.apply_fn(self.params, seqs)
                     probs_p_seq = torch.nn.functional.softmax(logits_p, dim=-1)
-                # Move just this batch's probs to GPU
                 elif self.config.cache_mode == "cpu":
+                    # Move just this batch's probs to GPU
                     probs_p_seq = self.probs_p[i:i+self.config.data_batch_size].to("cuda")
                 elif self.config.cache_mode == "gpu":
                     probs_p_seq = self.probs_p[i:i+self.config.data_batch_size]
@@ -301,7 +301,8 @@ class CausalLMEstimator(VolumeEstimator):
         self.kl_fn = kl_fn
 
     def load_adam_vector(self):
-        raise NotImplementedError("CausalLMEstimator does not support ADAM preconditioning")
+        # Adam buffers aren't available for all models; Pythia has them
+        raise NotImplementedError("CausalLMEstimator does not support Adam preconditioning")
 
 
 class PythiaEstimator(VolumeEstimator):

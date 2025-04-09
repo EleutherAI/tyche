@@ -164,8 +164,6 @@ class CausalLMEstimator(VolumeEstimator):
             self.config.data_batch_size = 1
         if self.config.max_seq_len is None:
             self.config.max_seq_len = 2048
-        if self.config.val_size is None:
-            self.config.val_size = 10
         if self.config.text_key is None:
             self.config.text_key = "text"
             
@@ -206,8 +204,8 @@ class CausalLMEstimator(VolumeEstimator):
                                     truncation=True, 
                                     max_length=self.config.max_seq_len, 
                                     return_tensors="pt")['input_ids']
-        print(f"{tokens.shape=}")
         tokens = tokens[:self.config.val_size]
+        print(f"{tokens.shape=}")
         self.val_data = tokens.to("cuda")
         if self.config.cache_mode:
             # Process sequences data_batch_size at a time and store probs on CPU

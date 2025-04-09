@@ -6,8 +6,6 @@ import argparse
 import gc
 import jax
 
-BASIN_VOLUME_DIR = "/mnt/ssd-1/adam/basin-volume"
-
 RESULTS_DIR = os.path.join(BASIN_VOLUME_DIR, "results_0205")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 

@@ -5,9 +5,6 @@ import os
 import argparse
 import gc
 
-BASIN_VOLUME_DIR = "/mnt/ssd-1/adam/basin-volume"
-
-
 def pythia_histo(testing=False, adam=False):
     cfg = VolumeConfig(model_type="pythia", 
                         model_name="31m",

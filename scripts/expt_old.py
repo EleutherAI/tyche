@@ -6,8 +6,6 @@ import argparse
 import gc
 import jax
 
-BASIN_VOLUME_DIR = "/mnt/ssd-1/adam/basin-volume"
-
 def pythia_chkpts(testing=False, big=False, adam=False):
     cfg = VolumeConfig(model_type="pythia", 
                    model_name="31m",

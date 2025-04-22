@@ -4,12 +4,29 @@ from tqdm import tqdm
 import torch
 
 from .utils import norm, unit, logrectdet, weighted_logsumexp, print_gpu_memory
-from .math import log, cos, sinc, gaussint_ln_noncentral_erf, log_hyperball_volume, log_small_hyperspherical_cap
+from .math import (
+    log,
+    cos,
+    sinc,
+    gaussint_ln_noncentral_erf,
+    log_hyperball_volume,
+    log_small_hyperspherical_cap,
+)
 from .vectors import ImplicitVector, ImplicitRandomVector
 
-def find_radius_vectorized(center, vecs, cutoff, fn, *,
-                           rtol=1e-1, iters=10, allow_unconverged=False,
-                           init_mult=1, jump=2.0):
+
+def find_radius_vectorized(
+    center,
+    vecs,
+    cutoff,
+    fn,
+    *,
+    rtol=1e-1,
+    iters=10,
+    allow_unconverged=False,
+    init_mult=1,
+    jump=2.0,
+):
     """
     Find the basin radius for a function along a batch of direction vectors.
     This uses a binary search, multiplying by `jump` when unbounded above.
@@ -41,7 +58,12 @@ def find_radius_vectorized(center, vecs, cutoff, fn, *,
 
     device = vecs[0].device
     # Compute losses for each vector at current guess multiplier
-    vec_losses = torch.stack([fn(center, vecs[i], torch.tensor([init_mult], device=device)) for i in range(batch_size)])
+    vec_losses = torch.stack(
+        [
+            fn(center, vecs[i], torch.tensor([init_mult], device=device))
+            for i in range(batch_size)
+        ]
+    )
     # loss at center
     center_losses = torch.stack([fn(center, 0)] * batch_size)
 
@@ -65,10 +87,14 @@ def find_radius_vectorized(center, vecs, cutoff, fn, *,
                 print("[WARN] Maximum number of iterations reached without converging")
                 break
             else:
-                raise ValueError("Maximum number of iterations reached without converging")
+                raise ValueError(
+                    "Maximum number of iterations reached without converging"
+                )
 
         # Compute losses for each vector at current guess multiplier
-        vec_losses = torch.stack([fn(center, vecs[i], mults[i]) for i in range(batch_size)])
+        vec_losses = torch.stack(
+            [fn(center, vecs[i], mults[i]) for i in range(batch_size)]
+        )
 
         # difference between vector and center
         deltas = vec_losses - center_losses
@@ -91,6 +117,7 @@ def find_radius_vectorized(center, vecs, cutoff, fn, *,
 
     return mults, deltas
 
+
 @dataclass
 class VolumeResult:
     """
@@ -103,29 +130,33 @@ class VolumeResult:
         deltas: Difference between fn at basin edge and center.
         gaussint: Log of Gaussian integral term.
     """
+
     estimates: torch.Tensor
     props: torch.Tensor
     mults: torch.Tensor
     deltas: torch.Tensor
     gaussint: torch.Tensor
 
-def get_estimates_vectorized_gauss(n, 
-                                   sigma,
-                                   *,
-                                   batch_size=None,
-                                   preconditioner=None, 
-                                   fn=None,
-                                   unary_fn=None,
-                                   params,
-                                   gaussint_fn=gaussint_ln_noncentral_erf,
-                                   debug=False,
-                                   tol=1e-2,
-                                   y_tol=5,
-                                   seed=42,
-                                   with_tqdm=True,
-                                   init_mult=1,
-                                   rtol=1e-1,
-                                   **kwargs):
+
+def get_estimates_vectorized_gauss(
+    n,
+    sigma,
+    *,
+    batch_size=None,
+    preconditioner=None,
+    fn=None,
+    unary_fn=None,
+    params,
+    gaussint_fn=gaussint_ln_noncentral_erf,
+    debug=False,
+    tol=1e-2,
+    y_tol=5,
+    seed=42,
+    with_tqdm=True,
+    init_mult=1,
+    rtol=1e-1,
+    **kwargs,
+):
     implicit = isinstance(params, ImplicitVector)
 
     if fn is None:
@@ -147,10 +178,12 @@ def get_estimates_vectorized_gauss(n,
 
     torch.manual_seed(seed)
 
-    for i in tqdm(range(0, n, batch_size), total=n // batch_size, disable=not with_tqdm):
+    for i in tqdm(
+        range(0, n, batch_size), total=n // batch_size, disable=not with_tqdm
+    ):
         if implicit:
             assert batch_size == 1, "batch_size must be 1 for implicit vectors"
-            vecs = [ImplicitRandomVector(seed+i, params)]
+            vecs = [ImplicitRandomVector(seed + i, params)]
         else:
             vecs = torch.randn(batch_size, D, device=center.device, dtype=center.dtype)
 
@@ -162,7 +195,7 @@ def get_estimates_vectorized_gauss(n,
             vecs = [unit(vecs[0])]
         else:
             vecs = unit(vecs, dim=1, keepdim=True)
-            
+
         if preconditioner is not None:
             assert not implicit, "preconditioner only supported for concrete vectors"
             vecs = preconditioner(vecs)
@@ -174,7 +207,14 @@ def get_estimates_vectorized_gauss(n,
         if debug:
             print_gpu_memory()
 
-        kwargs = {'cutoff': 1e-3, 'fn': fn, 'iters': 100, 'rtol': rtol, 'init_mult': init_mult, **kwargs}
+        kwargs = {
+            "cutoff": 1e-3,
+            "fn": fn,
+            "iters": 100,
+            "rtol": rtol,
+            "init_mult": init_mult,
+            **kwargs,
+        }
         mults, deltas = find_radius_vectorized(center, vecs, **kwargs)
 
         x1 = mults * props
@@ -188,8 +228,12 @@ def get_estimates_vectorized_gauss(n,
         if debug:
             print(f"{a.shape=}\n{b.shape=}\n{c.shape=}")
 
-        gaussint = gaussint_fn(a=a, b=b, n=D-1, x1=x1, c=c, tol=tol, y_tol=y_tol, debug=debug)
-        logconst = log_hyperball_volume(D) + log(D) - (D/2) * log(2 * torch.pi * sigma**2)
+        gaussint = gaussint_fn(
+            a=a, b=b, n=D - 1, x1=x1, c=c, tol=tol, y_tol=y_tol, debug=debug
+        )
+        logconst = (
+            log_hyperball_volume(D) + log(D) - (D / 2) * log(2 * torch.pi * sigma**2)
+        )
         # including prefactor and importance sampling correction
         estimates = gaussint + logconst - D * log(props)
 
@@ -210,18 +254,15 @@ def get_estimates_vectorized_gauss(n,
 
 
 def aggregate(estimates, dim=-1, **kwargs):
-    return weighted_logsumexp(estimates, w=torch.ones_like(estimates)/len(estimates), dim=dim, **kwargs)
+    return weighted_logsumexp(
+        estimates, w=torch.ones_like(estimates) / len(estimates), dim=dim, **kwargs
+    )
 
 
 # without Gaussian weighting
-def get_estimates_vectorized(n, 
-                             preconditioner=None, 
-                             *,
-                             fn=None, 
-                             params,
-                             unary_fn=None,
-                             seed=42,
-                             **kwargs):
+def get_estimates_vectorized(
+    n, preconditioner=None, *, fn=None, params, unary_fn=None, seed=42, **kwargs
+):
     if fn is None:
         assert unary_fn is not None, "fn or unary_fn must be provided"
         fn = lambda a, b: unary_fn(a + b)
@@ -236,7 +277,7 @@ def get_estimates_vectorized(n,
 
     props = norm(vecs, dim=1)
 
-    kwargs = {'cutoff': 1e-3, 'fn': fn, 'iters': 100, 'rtol': 1e-2, **kwargs}
+    kwargs = {"cutoff": 1e-3, "fn": fn, "iters": 100, "rtol": 1e-2, **kwargs}
     mults, deltas = find_radius_vectorized(center, vecs, **kwargs)
 
     estimates = D * log(mults) + log_hyperball_volume(D)
@@ -248,9 +289,9 @@ def get_estimates_vectorized(n,
 def make_fn_sphere(unary_fn):
     def fn_sphere(rad, vec):
         # assert jnp.abs(rad @ vec) < 1e-6, f"rad @ vec = {rad @ vec}"
-        
+
         theta = norm(vec) / norm(rad)
-        
+
         # tang = vec / theta  # tangent vector with norm equal to rad
         # x = rad * jnp.cos(theta) + tang * jnp.sin(theta)
 
@@ -264,20 +305,17 @@ def make_fn_sphere(unary_fn):
 
     return fn_sphere
 
+
 def check_preconditioner(preconditioner, rhat):
     logdet = logrectdet(preconditioner)
     assert abs(logdet) < 1.0, f"logrectdet(preconditioner) = {logdet}"
     maxradial = max(abs(rhat @ preconditioner))
     assert maxradial < 1e-3, f"max(abs(rhat @ preconditioner)) = {maxradial}"
 
-def get_estimates_sphere_vectorized(n, 
-                                    preconditioner=None, 
-                                    *,
-                                    fn=None, 
-                                    unary_fn=None,
-                                    params,
-                                    seed=42,
-                                    **kwargs):
+
+def get_estimates_sphere_vectorized(
+    n, preconditioner=None, *, fn=None, unary_fn=None, params, seed=42, **kwargs
+):
     if fn is None:
         fn = make_fn_sphere(unary_fn)
 
@@ -301,7 +339,9 @@ def get_estimates_sphere_vectorized(n,
 
     props = norm(vecs, dim=1)
 
-    mults, deltas = find_radius_vectorized(center, vecs, cutoff=1e-3, fn=fn, iters=100, rtol=1e-2)
+    mults, deltas = find_radius_vectorized(
+        center, vecs, cutoff=1e-3, fn=fn, iters=100, rtol=1e-2
+    )
     thetas = mults * props / norm(center)
     D = center.shape[0]
     logvols = log_small_hyperspherical_cap(D, thetas) - (D - 1) * log(props)

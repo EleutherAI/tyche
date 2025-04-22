@@ -1,10 +1,12 @@
 import gc
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+import itertools
 from typing import Optional, Union, Literal
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import Dataset
+from tyche.inductive_bias import MLP_VARIANTS, MLPConfig
 
 from .data import chunk_and_tokenize
 from .volume import get_estimates_vectorized_gauss, VolumeResult
@@ -15,9 +17,10 @@ from .convnext import (
     load_convnext_checkpoint,
     load_cifar10_splits,
     get_convnext_logits,
-    load_convnext_adam_vectors
+    load_convnext_adam_vectors,
 )
 from .vectors import ImplicitVector, ImplicitParamVector, ImplicitRandomVector
+
 
 @dataclass
 class VolumeConfig:
@@ -32,15 +35,18 @@ class VolumeConfig:
     seed: int = 42
     tqdm: bool = True
     debug: bool = False
-    reduction: Optional[Literal["mean"]] = "mean" # Reduction over the batch dimension
+    reduction: Optional[Literal["mean"]] = "mean"  # Reduction over the batch dimension
     iters: int = 10
     allow_unconverged: bool = False
     rtol: float = 1e-1
     init_mult: float = 1
+    device: Optional[Union[str, torch.device]] = None  # Device to run on, for ConvNext
 
     # Model-specific parameters
     model_type: Literal["causal", "pythia", "convnext", "mlp"] = "causal"
-    model_name: Optional[str] = None  # pythia size ("31m"), convnext run name, or mlp config name
+    model_name: Optional[str] = (
+        None  # pythia size ("31m"), convnext run name, or mlp config name
+    )
     checkpoint_step: Optional[int] = None  # For pythia/convnext
     val_size: Optional[int] = None  # Number of validation datapoints
     split: Literal[None, "clean", "poison", "val"] = None  # For convnext
@@ -68,6 +74,7 @@ class VolumeConfig:
 
     last_token_only: bool = False
 
+
 class VolumeEstimator(ABC):
     def __init__(self, config: VolumeConfig):
         self.config = config
@@ -76,22 +83,22 @@ class VolumeEstimator(ABC):
         if self.config.preconditioner_type == "adam":
             self.load_adam_vector()
         self.set_preconditioner()
-        
+
     @abstractmethod
     def set_defaults(self):
         """Set default values for config"""
         pass
-    
+
     @abstractmethod
     def setup_model(self):
         """Load model checkpoint and set up apply_fn"""
         pass
-    
+
     @abstractmethod
     def load_adam_vector(self):
         """Load ADAM vector from checkpoint"""
         pass
-    
+
     def set_preconditioner(self):
         match self.config.preconditioner_type:
             case "adam":
@@ -101,25 +108,31 @@ class VolumeEstimator(ABC):
                     case 2:
                         adam_vector = self.adam2
                     case _:
-                        raise ValueError(f"Invalid ADAM order: {self.config.adam_order}")
+                        raise ValueError(
+                            f"Invalid ADAM order: {self.config.adam_order}"
+                        )
 
                 self.preconditioner = diag_preconditioner(
                     adam_vector,
                     eps=self.config.preconditioner_eps,
-                    exponent=self.config.preconditioner_exponent
+                    exponent=self.config.preconditioner_exponent,
                 )
             case None:
                 self.preconditioner = None
             case _:
-                raise ValueError(f"Invalid preconditioner type: {self.config.preconditioner_type}")
+                raise ValueError(
+                    f"Invalid preconditioner type: {self.config.preconditioner_type}"
+                )
 
     @torch.inference_mode()
     def run(self) -> VolumeResult:
         if self.config.sigma is None:
-            self.config.sigma = torch.sqrt((self.params @ self.params) / self.params.shape[0])
+            self.config.sigma = torch.sqrt(
+                (self.params @ self.params) / self.params.shape[0]
+            )
         if self.config.debug:
             print(f"{self.config.sigma = }")
-            
+
         return get_estimates_vectorized_gauss(
             n=self.config.n_samples,
             batch_size=self.config.model_batch_size,
@@ -138,7 +151,7 @@ class VolumeEstimator(ABC):
             init_mult=self.config.init_mult,
             rtol=self.config.rtol,
         )
-    
+
     @classmethod
     def from_config(cls, config: VolumeConfig):
         if config.model_type == "pythia":
@@ -146,11 +159,15 @@ class VolumeEstimator(ABC):
         elif config.model_type == "convnext":
             return ConvNextEstimator(config)
         elif config.model_type == "mlp":
-            raise NotImplementedError("MLP requires JAX, see branch `jax-hybrid`")
+            return MLPEstimator(config)
         elif config.model_type == "causal":
             assert config.model is not None, "model must be provided for causal models"
-            assert config.tokenizer is not None, "tokenizer must be provided for causal models"
-            assert config.dataset is not None, "dataset must be provided for causal models"
+            assert (
+                config.tokenizer is not None
+            ), "tokenizer must be provided for causal models"
+            assert (
+                config.dataset is not None
+            ), "dataset must be provided for causal models"
             return CausalLMEstimator(config)
         else:
             raise ValueError(f"Invalid model type: {config.model_type}")
@@ -166,7 +183,7 @@ class CausalLMEstimator(VolumeEstimator):
             self.config.max_seq_len = 2048
         if self.config.text_key is None:
             self.config.text_key = "text"
-            
+
     def setup_model(self):
         self.model = self.config.model
         self.tokenizer = self.config.tokenizer
@@ -178,11 +195,13 @@ class CausalLMEstimator(VolumeEstimator):
         if self.config.implicit_vectors:
             self.params = ImplicitParamVector(self.model, self.config.block_size)
         else:
-            self.params = torch.nn.utils.parameters_to_vector(self.model.parameters()).detach()
+            self.params = torch.nn.utils.parameters_to_vector(
+                self.model.parameters()
+            ).detach()
 
         self.config.tol = self.params.shape[0] * 10 / 2**24
         self.config.y_tol = self.config.tol * 10
-        
+
         # Set up apply_fn and kl_fn
         def apply_fn(params, x):
             if self.config.implicit_vectors:
@@ -193,25 +212,32 @@ class CausalLMEstimator(VolumeEstimator):
                 return self.model.hf_model(x).logits.detach()
             else:
                 return self.model(x).logits.detach()
-            
+
         self.apply_fn = apply_fn
 
         if self.config.chunking:
-            tokens = chunk_and_tokenize(self.dataset, self.tokenizer, max_seq_len=self.config.max_seq_len, text_key=self.config.text_key)["input_ids"]
+            tokens = chunk_and_tokenize(
+                self.dataset,
+                self.tokenizer,
+                max_seq_len=self.config.max_seq_len,
+                text_key=self.config.text_key,
+            )["input_ids"]
         else:
-            tokens = self.tokenizer(self.dataset[self.config.text_key], 
-                                    padding=True, 
-                                    truncation=True, 
-                                    max_length=self.config.max_seq_len, 
-                                    return_tensors="pt")['input_ids']
-        tokens = tokens[:self.config.val_size]
+            tokens = self.tokenizer(
+                self.dataset[self.config.text_key],
+                padding=True,
+                truncation=True,
+                max_length=self.config.max_seq_len,
+                return_tensors="pt",
+            )["input_ids"]
+        tokens = tokens[: self.config.val_size]
         print(f"{tokens.shape=}")
         self.val_data = tokens.to("cuda")
         if self.config.cache_mode:
             # Process sequences data_batch_size at a time and store probs on CPU
             probs_p_list = []
             for i in range(0, self.val_data.shape[0], self.config.data_batch_size):
-                seqs = self.val_data[i:i+self.config.data_batch_size]
+                seqs = self.val_data[i : i + self.config.data_batch_size]
                 logits = self.apply_fn(self.params, seqs)
                 probs = torch.nn.functional.softmax(logits, dim=-1)
                 if self.config.cache_mode == "cpu":
@@ -220,11 +246,11 @@ class CausalLMEstimator(VolumeEstimator):
                     probs_p_list.append(probs)
                 else:
                     raise ValueError(f"Invalid cache mode: {self.config.cache_mode}")
-                
+
             self.probs_p = torch.cat(probs_p_list, dim=0)
         else:
             self.probs_p = None
-        
+
         def kl_fn(a, b, mults=None):
             def compute_multiplier(b, mults, i):
                 if mults is None:
@@ -245,7 +271,9 @@ class CausalLMEstimator(VolumeEstimator):
                 kl_sum = 0.0
                 count = 0
             elif self.config.reduction is None:
-                kl_sum = torch.zeros(self.val_data.shape[0], device=self.val_data.device)
+                kl_sum = torch.zeros(
+                    self.val_data.shape[0], device=self.val_data.device
+                )
                 count = torch.zeros(self.val_data.shape[0], device=self.val_data.device)
             else:
                 raise ValueError(f"Invalid reduction: {self.config.reduction}")
@@ -253,7 +281,7 @@ class CausalLMEstimator(VolumeEstimator):
 
             selection = slice(None) if not self.config.last_token_only else slice(-1)
             for i in range(0, self.val_data.shape[0], self.config.data_batch_size):
-                seqs = self.val_data[i:i+self.config.data_batch_size]
+                seqs = self.val_data[i : i + self.config.data_batch_size]
                 if self.config.implicit_vectors:
                     if b:
                         a.add_(compute_multiplier(b, mults, i))
@@ -266,41 +294,49 @@ class CausalLMEstimator(VolumeEstimator):
                         params_q = a + b
                     logits_q = self.apply_fn(params_q, seqs)[..., selection]
                 logprobs_q = torch.nn.functional.log_softmax(logits_q, dim=-1)
-                
+
                 if self.config.cache_mode is None:
                     logits_p = self.apply_fn(self.params, seqs)
                     probs_p_seq = torch.nn.functional.softmax(logits_p, dim=-1)
                 elif self.config.cache_mode == "cpu":
                     # Move just this batch's probs to GPU
-                    probs_p_seq = self.probs_p[i:i+self.config.data_batch_size].to("cuda")
+                    probs_p_seq = self.probs_p[i : i + self.config.data_batch_size].to(
+                        "cuda"
+                    )
                 elif self.config.cache_mode == "gpu":
-                    probs_p_seq = self.probs_p[i:i+self.config.data_batch_size]
+                    probs_p_seq = self.probs_p[i : i + self.config.data_batch_size]
                 else:
                     raise ValueError(f"Invalid cache mode: {self.config.cache_mode}")
-                
-                kl_seq = torch.nn.functional.kl_div(logprobs_q, probs_p_seq, reduction="none").sum(dim=-1)
+
+                kl_seq = torch.nn.functional.kl_div(
+                    logprobs_q, probs_p_seq, reduction="none"
+                ).sum(dim=-1)
                 mask = seqs != self.tokenizer.pad_token_id
                 kl_seq_masked = kl_seq[mask]
                 if self.config.reduction == "mean":
                     kl_sum += torch.sum(kl_seq_masked)
                     count += torch.sum(mask)
                 elif self.config.reduction is None:
-                    kl_sum[i:i+self.config.data_batch_size] = kl_seq_masked.sum(dim=-1)
-                    count[i:i+self.config.data_batch_size] = mask.sum(dim=-1)
+                    kl_sum[i : i + self.config.data_batch_size] = kl_seq_masked.sum(
+                        dim=-1
+                    )
+                    count[i : i + self.config.data_batch_size] = mask.sum(dim=-1)
 
             kl_term = kl_sum / count
             if self.config.l2_reg:
                 b_sq = b @ b if b else 0
-                l2_term = 1/2 * self.config.l2_reg * b_sq
+                l2_term = 1 / 2 * self.config.l2_reg * b_sq
             else:
                 l2_term = 0
             return kl_term + l2_term
-            
+
         self.kl_fn = kl_fn
 
     def load_adam_vector(self):
         # Adam buffers aren't available for all models; Pythia has them
-        raise NotImplementedError("CausalLMEstimator does not support Adam preconditioning")
+        raise NotImplementedError(
+            "CausalLMEstimator does not support Adam preconditioning"
+        )
 
 
 class PythiaEstimator(VolumeEstimator):
@@ -324,55 +360,69 @@ class PythiaEstimator(VolumeEstimator):
     def setup_model(self):
         if self.config.implicit_vectors:
             raise NotImplementedError("Implicit vectors not yet supported for Pythia")
-        
+
         # Load tokenizer and model
-        self.tokenizer = AutoTokenizer.from_pretrained(f"EleutherAI/pythia-{self.config.model_name}")
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            f"EleutherAI/pythia-{self.config.model_name}"
+        )
         self.tokenizer.pad_token_id = 1
         self.tokenizer.eos_token_id = 0
-        
+
         # Get model checkpoint
-        self.model = load_pythia_checkpoint(self.config.checkpoint_step, self.config.model_name)
-            
+        self.model = load_pythia_checkpoint(
+            self.config.checkpoint_step, self.config.model_name
+        )
+
         # Convert params to JAX
-        trained_params_t = torch.nn.utils.parameters_to_vector(self.model.parameters()).detach()
+        trained_params_t = torch.nn.utils.parameters_to_vector(
+            self.model.parameters()
+        ).detach()
         self.params = trained_params_t
-        
+
         # Load validation data
-        self.val_data = load_pythia_val_data(self.tokenizer, n_seqs=self.config.val_size)
-        
+        self.val_data = load_pythia_val_data(
+            self.tokenizer, n_seqs=self.config.val_size
+        )
+
         # Set up apply_fn and kl_fn
         def apply_fn(params, x):
             params_t = torch.from_dlpack(params)
             torch.nn.utils.vector_to_parameters(params_t, self.model.parameters())
             return self.model(x).logits.detach()
-            
+
         self.apply_fn = apply_fn
-        
+
         logits_p = self.apply_fn(self.params, self.val_data)
         probs_p = torch.nn.functional.softmax(logits_p, dim=-1)
-        
+
         def kl_fn(a, b, mults=None):
             if mults:
                 if mults.shape[0] != 1:
-                    raise ValueError(f"Invalid mults: {mults}; reduction = None not supported for pythia")
+                    raise ValueError(
+                        f"Invalid mults: {mults}; reduction = None not supported for pythia"
+                    )
                 b = mults[0] * b
             params_q = a + b
             logits_q = self.apply_fn(params_q, self.val_data)
             logprobs_q = torch.nn.functional.log_softmax(logits_q, dim=-1)
-            kl_all = torch.nn.functional.kl_div(logprobs_q, probs_p, reduction="none").sum(dim=-1)
+            kl_all = torch.nn.functional.kl_div(
+                logprobs_q, probs_p, reduction="none"
+            ).sum(dim=-1)
             mask = self.val_data != self.tokenizer.pad_token_id
             kl_term = torch.mean(kl_all[mask])
             if self.config.l2_reg:
                 b_sq = b @ b if b else 0
-                l2_term = 1/2 * self.config.l2_reg * b_sq
+                l2_term = 1 / 2 * self.config.l2_reg * b_sq
             else:
                 l2_term = 0
             return kl_term + l2_term
-            
+
         self.kl_fn = kl_fn
 
     def load_adam_vector(self):
-        adam_states = load_pythia_checkpoint_states(self.config.checkpoint_step, self.config.model_name)
+        adam_states = load_pythia_checkpoint_states(
+            self.config.checkpoint_step, self.config.model_name
+        )
         adam1, adam2 = build_pythia_adam_vectors(self.model, adam_states)
         self.adam1 = adam1
         self.adam2 = adam2
@@ -396,59 +446,131 @@ class ConvNextEstimator(VolumeEstimator):
             self.config.sigma = 0.03358687
         if self.config.split is None:
             self.config.split = "val"
+        # if self.config.device is None:
+        #     raise ValueError(
+        #         "device must be specified for ConvNextEstimator; use config.device = 'cuda:i' or 'cpu'"
+        #     )
 
     def setup_model(self):
         if self.config.implicit_vectors:
             raise NotImplementedError("Implicit vectors not yet supported for ConvNext")
-        
+
         # Load model checkpoint
         self.model = load_convnext_checkpoint(
-            f"{BASIN_VOLUME_DIR}/runs/{self.config.model_name}/checkpoint-{self.config.checkpoint_step}"
+            f"{BASIN_VOLUME_DIR}/runs/{self.config.model_name}/checkpoint-{self.config.checkpoint_step}",
+            device=self.config.device,
         )
-        
+
         # Convert params to JAX
         trained_params_t = torch.nn.utils.parameters_to_vector(self.model.parameters())
         trained_params_t = trained_params_t.to(torch.float32).detach()
         self.params = torch.from_dlpack(trained_params_t)
-        
+
         # Load evaluation data
         splits = load_cifar10_splits(size=self.config.val_size)
-        self.val_data = splits[self.config.split]
-        
+
+        self.val_data = splits[self.config.split].to(device=self.config.device)
+
         # Set up apply_fn and kl_fn
         def apply_fn(params, x):
             params_t = torch.from_dlpack(params).to(torch.float16)
             return get_convnext_logits(params_t, x, self.model)
-            
+
         self.apply_fn = apply_fn
-        
+
         logits_p = self.apply_fn(self.params, self.val_data)
         probs_p = torch.nn.functional.softmax(logits_p, dim=-1)
-        
+
         def kl_fn(a, b, mults=None):
             if mults:
                 if mults.shape[0] != 1:
-                    raise ValueError(f"Invalid mults: {mults}; reduction = None not supported for convnext")
+                    raise ValueError(
+                        f"Invalid mults: {mults}; reduction = None not supported for convnext"
+                    )
                 b = mults[0] * b
             params_q = a + b
             logits_q = self.apply_fn(params_q, self.val_data)
             logprobs_q = torch.nn.functional.log_softmax(logits_q, dim=-1)
             # equivalent to batchmean but written out for easy comparison
-            kl_term = torch.nn.functional.kl_div(logprobs_q, probs_p, reduction="none").sum(dim=-1).mean()
+            kl_term = (
+                torch.nn.functional.kl_div(logprobs_q, probs_p, reduction="none")
+                .sum(dim=-1)
+                .mean()
+            )
             if self.config.l2_reg:
                 b_sq = b @ b if b else 0
-                l2_term = 1/2 * self.config.l2_reg * b_sq
+                l2_term = 1 / 2 * self.config.l2_reg * b_sq
             else:
                 l2_term = 0
             return kl_term + l2_term
-            
+
         self.kl_fn = kl_fn
 
     def load_adam_vector(self):
         adam1, adam2 = load_convnext_adam_vectors(
-            self.model,
-            self.config.model_name,
-            self.config.checkpoint_step
+            self.model, self.config.model_name, self.config.checkpoint_step
         )
         self.adam1 = adam1
         self.adam2 = adam2
+
+
+class MLPEstimator(VolumeEstimator):
+    def set_defaults(self):
+        self.cfg = MLPConfig(**self.config.model_name)
+        self.config.model_batch_size = 1
+
+    def setup_model(self):
+
+        self.model = MLP_VARIANTS(self.cfg)
+        self.model.initialize_weights()
+
+        self.params = torch.nn.utils.parameters_to_vector(
+            self.model.parameters()
+        ).detach()
+
+        self.data = torch.tensor(
+            list(itertools.product(range(self.cfg.N), repeat=2)),
+            device=self.model.device,
+        )
+
+        def apply_fn(params, val_data):
+
+            torch.nn.utils.vector_to_parameters(params, self.model.parameters())
+
+            return self.model(val_data).detach()
+
+        self.apply_fn = apply_fn
+
+        logits_p = self.apply_fn(self.params, self.data)
+
+        probs_p = torch.nn.functional.softmax(logits_p, dim=-1)
+
+        def kl_fn(a, b, mults=None):
+
+            if mults is not None:
+                if mults.shape[0] != 1:
+                    raise ValueError(
+                        f"Invalid mults: {mults}; reduction = None not supported for MLP"
+                    )
+                b = mults[0] * b
+
+            params_q = a + b
+            logits_q = self.apply_fn(params_q, self.data)
+            logprobs_q = torch.nn.functional.log_softmax(logits_q, dim=-1)
+            kl_term = (
+                torch.nn.functional.kl_div(logprobs_q, probs_p, reduction="none").sum(
+                    dim=-1
+                )
+            ).mean()
+            if self.config.l2_reg:
+                l2_term = 1 / 2 * self.config.l2_reg * b @ b
+            else:
+                l2_term = 0
+            return kl_term + l2_term
+
+        self.kl_fn = kl_fn
+
+    def load_adam_vector(self):
+
+        self.adam1 = 0
+        self.adam2 = 0

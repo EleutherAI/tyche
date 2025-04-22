@@ -8,20 +8,10 @@ from tyche.inductive_bias import MLPConfig
 import pandas as pd
 import os
 
-
-def read_database():
-    """Read the shared database file if it exists."""
-    if os.path.exists("shared_database.parquet"):
-        return pd.read_parquet("shared_database.parquet")
-    else:
-        return pd.DataFrame()  # Return empty DataFrame if file doesn't exist
+database_name = "shared_database_longer.parquet"
 
 
-import pandas as pd
-import os
-
-
-def read_database(filepath="shared_database.parquet"):
+def read_database(filepath=database_name):
     """Read the shared database file if it exists, otherwise return empty DataFrame."""
     if os.path.exists(filepath):
         try:
@@ -34,7 +24,7 @@ def read_database(filepath="shared_database.parquet"):
         return pd.DataFrame()
 
 
-def write_to_database(new_data, filepath="shared_database.parquet"):
+def write_to_database(new_data, filepath=database_name):
     """Append new data to the existing database."""
     # Read existing data
     existing_df = read_database(filepath)
@@ -72,7 +62,7 @@ ACTIVATION_FUNCTIONS = [
     t.nn.Tanh(),
     GaussianActivation(),
 ]
-DEPTH = [1, 2, 4, 8]
+DEPTH = [1, 2, 3, 4, 5]
 WEIGHTSCALE = [math.sqrt(10) ** i for i in np.arange(-1, 2, 0.5)]
 WEIGHT_MODES = [
     "uniform",
@@ -85,7 +75,7 @@ WEIGHT_MODES = [
 
 def run_mlp_basin():
     results = []
-    num_samples = 5
+    num_samples = 3
 
     for activ_fn in tqdm(ACTIVATION_FUNCTIONS):
         for d in DEPTH:
@@ -114,7 +104,7 @@ def run_mlp_basin():
                             model_type="mlp",
                             model_name=model_name,
                             n_samples=100,  # number of MC samples
-                            iters=10,
+                            iters=30,
                             cutoff=1e-2,  # KL-divergence cutoff (nats)
                             cache_mode=None,  # see below
                             chunking=False,  # whether to use chunk_and_tokenize
@@ -156,4 +146,6 @@ if __name__ == "__main__":
     # Convert results to DataFrame and append to the database
     df = pd.DataFrame(results)
 
-    write_to_database(df)
+    write_to_database(
+        df,
+    )

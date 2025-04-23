@@ -7,6 +7,8 @@ from tqdm.auto import tqdm
 import pandas as pd
 import numpy as np
 from tyche.estimator import VolumeConfig, VolumeEstimator
+from tyche.MLP_metrics import run_single_estimator_config
+from tyche.inductive_bias import MLPConfig
 
 
 class GaussianActivation(t.nn.Module):
@@ -27,8 +29,9 @@ WEIGHT_MODES = [
     "xavier_uniform",
     "normal",
     "xavier_normal",
-    "none",
+    "constant",
 ]
+
 
 database_name = "shared_database_parallel.parquet"
 
@@ -80,74 +83,19 @@ except RuntimeError:
     pass
 
 
-def run_single_config(config_tuple, gpu_id):
-    """Run a single configuration on a specific GPU"""
-    activ_fn, d, w, weight_mode, i = config_tuple
-
-    t.manual_seed(i)
-    model_name = {
-        "activation": activ_fn,
-        "N": 113,
-        "embed_dimension": 24,
-        "linear_dimension": 48,
-        "intermediate": "pure",
-        "embedding_tied": False,
-        "unembedding_tied": False,
-        "bias_unembed": False,
-        "num_additional_layers": d,
-        "dimensions": (48),
-        "bias_layer": False,
-        "W_amplitude": w,
-        "weight_mode": weight_mode,
-        "device": f"cuda:{gpu_id}",
-    }
-
-    cfg = VolumeConfig(
-        model_type="mlp",
-        model_name=model_name,
-        n_samples=100,
-        iters=30,
-        cutoff=1e-2,
-        cache_mode=None,
-        chunking=False,
-        reduction=None,
-        device=f"cuda:{gpu_id}",
-        tol=0.035,
-        tqdm=False,
-    )
-
-    estimator = VolumeEstimator.from_config(cfg)
-    try:
-        z = estimator.run()
-        estimates_tensor = z.estimates.squeeze()
-        estimates = estimates_tensor.detach().cpu().numpy()
-    except ValueError as e:
-        estimates = None
-
-    activ_name = (
-        activ_fn.__class__.__name__ if hasattr(activ_fn, "__class__") else str(activ_fn)
-    )
-
-    model_name["activation"] = activ_name
-    model_name["volume_estimates"] = estimates
-    model_name["sample_id"] = i
-
-    return model_name
-
-
 def process_chunk(configs, gpu_id, results_list):
     """Process a chunk of configurations on a specific GPU and add to shared results list"""
     for config in tqdm(configs, desc=f"GPU {gpu_id}"):
-        result = run_single_config(config, gpu_id)
+        result = run_single_estimator_config(config, gpu_id)
         results_list.append(result)
 
 
-def run_mlp_basin():
-    start_gpu = 3
+def run_mlp_basin(mlp_config: MLPConfig = MLPConfig()):
+    start_gpu = 4
     num_gpus = 3
-    assert num_gpus + start_gpu <= 8, "This script is designed to run on 4 GPUs only."
+    assert num_gpus + start_gpu <= 8, "This script is designed to run on 8 GPUs max."
 
-    num_samples = 3
+    num_samples = 1
 
     # Create all configurations
     all_configs = []
@@ -156,7 +104,14 @@ def run_mlp_basin():
             for w in WEIGHTSCALE:
                 for weight_mode in WEIGHT_MODES:
                     for i in range(num_samples):
-                        all_configs.append((activ_fn, d, w, weight_mode, i))
+                        mlp_config = mlp_config
+                        mlp_config.activation = activ_fn
+                        mlp_config.num_additional_layers = d
+                        mlp_config.W_amplitude = w
+                        mlp_config.weight_mode = weight_mode
+                        mlp_config.seed = i
+
+                        all_configs.append(mlp_config)
 
     # Print total configurations to be run
     total_configs = len(all_configs)
@@ -165,6 +120,9 @@ def run_mlp_basin():
     # Use Manager to create a shared list for results
     with Manager() as manager:
         results = manager.list()
+
+        # randomly shuffle the configurations because some configs take longer
+        np.random.shuffle(all_configs)
 
         # Split configs into chunks for each GPU
         chunks = np.array_split(all_configs, num_gpus)
@@ -191,7 +149,7 @@ def run_mlp_basin():
 if __name__ == "__main__":
     # Run the MLP basin function with parallelization
     results = run_mlp_basin()
-
+    database_name = "shared_database.parquet"
     # Convert results to DataFrame and append to the database
     df = pd.DataFrame(results)
-    write_to_database(df)
+    write_to_database(df, database_name)

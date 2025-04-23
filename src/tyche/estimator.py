@@ -44,7 +44,7 @@ class VolumeConfig:
 
     # Model-specific parameters
     model_type: Literal["causal", "pythia", "convnext", "mlp"] = "causal"
-    model_name: Optional[str] = (
+    model_name: Optional[Union[str, MLPConfig]] = (
         None  # pythia size ("31m"), convnext run name, or mlp config name
     )
     checkpoint_step: Optional[int] = None  # For pythia/convnext
@@ -53,7 +53,7 @@ class VolumeConfig:
 
     # For HF models
     # Model and dataset params
-    model: Optional[AutoModelForCausalLM] = None
+    model: Optional[Union[AutoModelForCausalLM, MLP_VARIANTS]] = None
     tokenizer: Optional[AutoTokenizer] = None
     dataset: Optional[Dataset] = None
     text_key: Optional[str] = None
@@ -516,22 +516,21 @@ class ConvNextEstimator(VolumeEstimator):
 
 class MLPEstimator(VolumeEstimator):
     def set_defaults(self):
-        self.cfg = MLPConfig(**self.config.model_name)
         self.config.model_batch_size = 1
 
     def setup_model(self):
+        self.data = self.config.dataset
 
-        self.model = MLP_VARIANTS(self.cfg)
-        self.model.initialize_weights()
+        if self.config.model is None:
+            self.cfg = MLPConfig(**self.config.model_name)
+            self.model = MLP_VARIANTS(self.cfg)
+            self.model.initialize_weights()
+        else:
+            self.model = self.config.model
 
         self.params = torch.nn.utils.parameters_to_vector(
             self.model.parameters()
         ).detach()
-
-        self.data = torch.tensor(
-            list(itertools.product(range(self.cfg.N), repeat=2)),
-            device=self.model.device,
-        )
 
         def apply_fn(params, val_data):
 

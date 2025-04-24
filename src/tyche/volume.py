@@ -108,6 +108,8 @@ class VolumeResult:
     mults: torch.Tensor
     deltas: torch.Tensor
     gaussint: torch.Tensor
+    logits_original: torch.Tensor = None
+    logits_perturbed: torch.Tensor = None 
 
 def get_estimates_vectorized_gauss(n, 
                                    sigma,

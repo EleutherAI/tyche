@@ -18,7 +18,7 @@ from .convnext import (
     load_convnext_adam_vectors
 )
 from .vectors import ImplicitVector, ImplicitParamVector, ImplicitRandomVector
-
+print("hello")
 @dataclass
 class VolumeConfig:
     # Common parameters
@@ -157,6 +157,7 @@ class VolumeEstimator(ABC):
 
 
 class CausalLMEstimator(VolumeEstimator):
+    
     def set_defaults(self):
         if self.config.model_batch_size is None:
             self.config.model_batch_size = 1
@@ -168,6 +169,9 @@ class CausalLMEstimator(VolumeEstimator):
             self.config.text_key = "text"
             
     def setup_model(self):
+        self.latest_original_logits = []
+        self.latest_perturbed_logits = []
+
         self.model = self.config.model
         self.tokenizer = self.config.tokenizer
         self.dataset = self.config.dataset
@@ -207,12 +211,22 @@ class CausalLMEstimator(VolumeEstimator):
         tokens = tokens[:self.config.val_size]
         print(f"{tokens.shape=}")
         self.val_data = tokens.to("cuda")
+        logits_p = self.apply_fn(self.params, self.val_data)
+        self.latest_original_logits = logits_p.detach().cpu()
+
+        if self.config.cache_mode:
+            self.probs_p = torch.nn.functional.softmax(logits_p, dim=-1)
+        else:
+            self.probs_p = None
+
+        # logits_p_list = []  # <-- Add this line
         if self.config.cache_mode:
             # Process sequences data_batch_size at a time and store probs on CPU
             probs_p_list = []
             for i in range(0, self.val_data.shape[0], self.config.data_batch_size):
                 seqs = self.val_data[i:i+self.config.data_batch_size]
                 logits = self.apply_fn(self.params, seqs)
+                # logits_p_list.append(logits.to("cpu") if self.config.cache_mode == "cpu" else logits)
                 probs = torch.nn.functional.softmax(logits, dim=-1)
                 if self.config.cache_mode == "cpu":
                     probs_p_list.append(probs.to("cpu"))
@@ -221,11 +235,18 @@ class CausalLMEstimator(VolumeEstimator):
                 else:
                     raise ValueError(f"Invalid cache mode: {self.config.cache_mode}")
                 
-            self.probs_p = torch.cat(probs_p_list, dim=0)
+            # self.probs_p = torch.cat(probs_p_list, dim=0)
+            # self.latest_original_logits = torch.cat(logits_p_list, dim=0)
+            # if self.config.cache_mode:
+            #     self.logits_p = torch.cat(logits_p_list, dim=0)  # Raw unperturbed logits (same shape as val_data)
+
         else:
             self.probs_p = None
         
         def kl_fn(a, b, mults=None):
+            # For capturing final logits (you'll need to add flags to indicate when to save them)
+            final_logits_original = []
+            final_logits_perturbed = []
             def compute_multiplier(b, mults, i):
                 if mults is None:
                     return b
@@ -278,6 +299,15 @@ class CausalLMEstimator(VolumeEstimator):
                 else:
                     raise ValueError(f"Invalid cache mode: {self.config.cache_mode}")
                 
+
+                # Always store the latest logits
+                # self.latest_original_logits.append(logits_p.detach().cpu())
+                self.latest_perturbed_logits.append(logits_q.detach().cpu())
+                # print("=== Debugging KL divergence shapes ===")
+                # print(f"logprobs_q shape: {logprobs_q.shape}")
+                # print(f"probs_p_seq shape: {probs_p_seq.shape}")
+                # print(f"logprobs_q vocab size: {logprobs_q.shape[-1]}")
+                # print(f"probs_p_seq vocab size: {probs_p_seq.shape[-1]}")
                 kl_seq = torch.nn.functional.kl_div(logprobs_q, probs_p_seq, reduction="none").sum(dim=-1)
                 mask = seqs != self.tokenizer.pad_token_id
                 kl_seq_masked = kl_seq[mask]
@@ -423,6 +453,7 @@ class ConvNextEstimator(VolumeEstimator):
         self.apply_fn = apply_fn
         
         logits_p = self.apply_fn(self.params, self.val_data)
+        # self.latest_original_logits = logits_p.detach().cpu()
         probs_p = torch.nn.functional.softmax(logits_p, dim=-1)
         
         def kl_fn(a, b, mults=None):

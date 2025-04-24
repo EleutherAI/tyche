@@ -29,6 +29,7 @@ class MLPConfig:
     device: Union[str, t.device] = "cpu"
     b_amplitude: float = 0.0
     seed: int = 1  # Random seed for init (and random data sample)
+    save_model: bool = False  # Save model
 
     #### For training
     training_epochs: int = 1001
@@ -37,14 +38,11 @@ class MLPConfig:
     train_data_size: int = 1000
     eval_interval: int = 100
 
-    def __post_init__(self):
-        if isinstance(self.dimensions, int):
-            self.dimensions = (self.dimensions,) * (self.num_additional_layers)
-        if len(self.dimensions) == 1:
-            self.dimensions = self.dimensions * (self.num_additional_layers)
-        assert (
-            len(self.dimensions) == self.num_additional_layers
-        ), "Dimensions must be of length num_additional_layers"
+    def update(self, **kwargs):
+        """Update multiple attributes and then call __post_init__"""
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
 
 
 def random_data(mlp_config: MLPConfig):
@@ -79,6 +77,17 @@ class MLP_VARIANTS(t.nn.Module):
         self.linear_dimension = mlp_config.linear_dimension
         self.epoch = 0
 
+        if isinstance(mlp_config.dimensions, int):
+            self.dimensions = (mlp_config.dimensions,) * (
+                mlp_config.num_additional_layers
+            )
+        elif len(mlp_config.dimensions) == 1:
+            self.dimensions = mlp_config.dimensions * (mlp_config.num_additional_layers)
+        else:
+            assert (
+                len(mlp_config.dimensions) == mlp_config.num_additional_layers
+            ), f"Dimensions {len(mlp_config.dimensions)} must be of length num_additional_layers {mlp_config.num_additional_layers}"
+
         self.data = random_data(mlp_config)
 
         self.device = mlp_config.device
@@ -110,7 +119,7 @@ class MLP_VARIANTS(t.nn.Module):
                 layers.append(
                     t.nn.Linear(
                         self.linear_dimension,
-                        mlp_config.dimensions[i],
+                        self.dimensions[i],
                         bias=self.mlp_config.bias_layer,
                     )
                 )
@@ -118,7 +127,7 @@ class MLP_VARIANTS(t.nn.Module):
             elif i == mlp_config.num_additional_layers - 1:
                 layers.append(
                     t.nn.Linear(
-                        mlp_config.dimensions[i - 1],
+                        self.dimensions[i - 1],
                         d_unembed,
                         bias=self.mlp_config.bias_layer,
                     )
@@ -127,8 +136,8 @@ class MLP_VARIANTS(t.nn.Module):
             else:
                 layers.append(
                     t.nn.Linear(
-                        self.mlp_config.dimensions[i - 1],
-                        self.mlp_config.dimensions[i],
+                        self.dimensions[i - 1],
+                        self.dimensions[i],
                         bias=self.mlp_config.bias_layer,
                     )
                 )
@@ -311,7 +320,7 @@ class MLP_VARIANTS(t.nn.Module):
                 tensor, fill_value=self.mlp_config.W_amplitude, dtype=t.float32
             )
         elif self.mlp_config.weight_mode == "none":
-            return
+            init_fn = lambda tensor: tensor * self.mlp_config.W_amplitude
 
         # Initialize weights and biases for all linear layers
         for module in self.modules():
@@ -319,9 +328,12 @@ class MLP_VARIANTS(t.nn.Module):
                 if module.weight is not None:
                     module.weight.data = init_fn(module.weight.data)
                 if module.bias is not None:
-                    module.bias.data.uniform_(
-                        -self.mlp_config.b_amplitude, self.mlp_config.b_amplitude
-                    )
+                    if self.mlp_config.weight_mode == "none":
+                        module.bias.data = init_fn(module.bias.data)
+                    else:
+                        module.bias.data.uniform_(
+                            -self.mlp_config.b_amplitude, self.mlp_config.b_amplitude
+                        )
 
     @t.no_grad()
     def test_loss_and_acc(self) -> dict[str, Float[t.Tensor, "instance"]]:

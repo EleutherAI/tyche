@@ -187,12 +187,14 @@ def gaussint_ln_noncentral_erf(a, b, n, x1, c=0, tol=1e-2, y_tol=5, debug=False)
 
     # branch
     abs_error = torch.where(global_in_range, abs_error_global, abs_error_x1)
+
     if (abs_error > tol).any():
         # check accuracy of approximation; in practice tol is extremely conservative
         # empirically, tol of 0.03 is still accurate to about +-1e-7 in the log
         # (based on comparison to _normed for n=12_000, a=2, b=3, x1=100)
         # i.e. beyond fp32 and approaching fp64 precision
         # also, we only actually need to be accurate to maybe +-1 in the log!
+
         if debug:
             print()
             print("approx error debug:")

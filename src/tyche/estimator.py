@@ -124,7 +124,7 @@ class VolumeEstimator(ABC):
                     f"Invalid preconditioner type: {self.config.preconditioner_type}"
                 )
 
-    @torch.inference_mode()
+    # @torch.inference_mode()
     def run(self) -> VolumeResult:
         if self.config.sigma is None:
             self.config.sigma = torch.sqrt(
@@ -133,24 +133,27 @@ class VolumeEstimator(ABC):
         if self.config.debug:
             print(f"{self.config.sigma = }")
 
-        return get_estimates_vectorized_gauss(
-            n=self.config.n_samples,
-            batch_size=self.config.model_batch_size,
-            sigma=self.config.sigma,
-            preconditioner=self.preconditioner,
-            fn=self.kl_fn,
-            params=self.params,
-            tol=self.config.tol,
-            y_tol=self.config.y_tol,
-            seed=self.config.seed,
-            cutoff=self.config.cutoff,
-            with_tqdm=self.config.tqdm,
-            debug=self.config.debug,
-            iters=self.config.iters,
-            allow_unconverged=self.config.allow_unconverged,
-            init_mult=self.config.init_mult,
-            rtol=self.config.rtol,
-        )
+        with torch.no_grad():
+            estimate_results = get_estimates_vectorized_gauss(
+                n=self.config.n_samples,
+                batch_size=self.config.model_batch_size,
+                sigma=self.config.sigma,
+                preconditioner=self.preconditioner,
+                fn=self.kl_fn,
+                params=self.params,
+                tol=self.config.tol,
+                y_tol=self.config.y_tol,
+                seed=self.config.seed,
+                cutoff=self.config.cutoff,
+                with_tqdm=self.config.tqdm,
+                debug=self.config.debug,
+                iters=self.config.iters,
+                allow_unconverged=self.config.allow_unconverged,
+                init_mult=self.config.init_mult,
+                rtol=self.config.rtol,
+            )
+
+        return estimate_results
 
     @classmethod
     def from_config(cls, config: VolumeConfig):
@@ -562,7 +565,9 @@ class MLPEstimator(VolumeEstimator):
                 )
             ).mean()
             if self.config.l2_reg:
-                l2_term = 1 / 2 * self.config.l2_reg * b @ b
+                Warning("L2 regularization is not implemented for MLP")
+                b_sq = b**2 if type(b) == int else b @ b
+                l2_term = (1 / 2) * self.config.l2_reg * (b_sq)
             else:
                 l2_term = 0
             return kl_term + l2_term

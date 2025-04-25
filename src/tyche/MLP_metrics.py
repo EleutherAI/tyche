@@ -14,6 +14,7 @@ from tyche.inductive_bias import MLP_VARIANTS, MLPConfig
 
 def measure_metrics(
     model: MLP_VARIANTS,
+    epoch: int = 0,
 ) -> dict:
     """Measure metrics for a given MLP configuration and model."""
 
@@ -24,7 +25,7 @@ def measure_metrics(
 
     if model.mlp_config.save_model:
         os.makedirs(save_dir, exist_ok=True)
-        model_dir = os.path.join(save_dir, f"model_{0}.pt")
+        model_dir = os.path.join(save_dir, f"model_{epoch}.pt")
         t.save(model.state_dict(), model_dir)
 
     # Assuming model has a method to compute loss and accuracy
@@ -41,11 +42,11 @@ def measure_metrics(
         metrics["train_accuracy"] = (
             (logits.argmax(dim=-1) == labels).float().mean().item()
         )
-
+        Warning("n_samples is only 1")
         cfg = VolumeConfig(
             model_type="mlp",
             model=model,
-            n_samples=100,
+            n_samples=1,
             iters=15,
             cutoff=1e-2,
             cache_mode=None,
@@ -101,7 +102,7 @@ def run_train_and_estimator(custom_config: MLPConfig, gpu_id: Optional[int]):
         optimizer.zero_grad()
 
         if i % model.mlp_config.eval_interval == 0 and i > 0:
-            metrics = measure_metrics(model)
+            metrics = measure_metrics(model, epoch=i)
             metrics["epoch"] = i
             results.append(metrics)
 

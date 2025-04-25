@@ -7,6 +7,7 @@ import scipy as sp
 
 # from jax.scipy.special import logsumexp
 import torch
+from tyche.local_cache import cache
 
 from .utils import weighted_logsumexp
 
@@ -125,6 +126,7 @@ def f012_int_ln(center, x1, f0, f1, f2, debug=False):
     return diff
 
 
+@cache(save_inputs=True)
 def gaussint_ln_noncentral_erf(a, b, n, x1, c=0, tol=1e-2, y_tol=5, debug=False):
     # integral of exp(-1/2 ax^2 + bx + c) * x^n
     # from 0 to x1
@@ -144,6 +146,7 @@ def gaussint_ln_noncentral_erf(a, b, n, x1, c=0, tol=1e-2, y_tol=5, debug=False)
     global_in_range = global_max <= x1
     if debug:
         print(f"{global_max=}, {global_in_range=}")
+    print(global_max > x1)
     max_pt = torch.minimum(global_max, x1)
     # print(max_pt)
     # get approximation stuff

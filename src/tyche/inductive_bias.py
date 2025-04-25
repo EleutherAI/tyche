@@ -25,7 +25,9 @@ class MLPConfig:
     dimensions: Union[Tuple[Int], Int] = ()
     bias_layer: bool = False
     W_amplitude: float = 1.0
-    weight_mode: str = "uniform"  # uniform, xavier_uniform, normal, xavier_normal
+    weight_mode: str = (
+        "uniform"  # uniform, xavier_uniform, normal, xavier_normal, constant, or none
+    )
     device: Union[str, t.device] = "cpu"
     b_amplitude: float = 0.0
     seed: int = 1  # Random seed for init (and random data sample)

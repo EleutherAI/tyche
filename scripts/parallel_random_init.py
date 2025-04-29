@@ -30,8 +30,8 @@ ACTIVATION_PAIRS = [(activ, "pure") for activ in ACTIVATION_FUNCTIONS] + [
     (t.nn.ReLU(), "complex_multiplication")
 ]
 
-DEPTH = [1, 3, 5]
-WEIGHTSCALE = [math.sqrt(10) ** i for i in np.arange(-1, 2, 1)]
+DEPTH = [1, 2, 3, 4, 5]
+WEIGHTSCALE = [math.sqrt(10) ** i for i in np.arange(-1, 2, 0.5)]
 WEIGHT_MODES = ["none"]
 
 
@@ -104,11 +104,11 @@ def process_chunk(configs, gpu_id, results_list):
 
 
 def run_mlp_basin(mlp_config: MLPConfig = MLPConfig()):
-    start_gpu = 1
-    num_gpus = 7
+    start_gpu = 0
+    num_gpus = 8
     assert num_gpus + start_gpu <= 8, "This script is designed to run on 8 GPUs max."
 
-    num_samples = 10
+    num_samples = 100
     all_configs = []
     for (activ_fn, intermediate_fn), d, w, weight_mode, i in itertools.product(
         ACTIVATION_PAIRS, DEPTH, WEIGHTSCALE, WEIGHT_MODES, range(num_samples)
@@ -160,42 +160,58 @@ def run_mlp_basin(mlp_config: MLPConfig = MLPConfig()):
 # Main execution
 if __name__ == "__main__":
     # Run the MLP basin function with parallelization
-    # mlp_config = MLPConfig(
-    #     N=53,
-    #     embed_dimension=36,
-    #     linear_dimension=48,
-    #     dimensions=48,
-    #     train_data_size=53**2,
-    #     training_epochs=0,
-    #     eval_interval=1000,
-    #     weight_decay=2e-4,
-    #     bias_layer=True,
-    #     bias_unembed=True,
-    # )
+    mlp_config = MLPConfig(
+        N=53,
+        embed_dimension=36,
+        linear_dimension=48,
+        dimensions=48,
+        train_data_size=53**2,
+        training_epochs=0,
+        eval_interval=1,
+        weight_decay=2e-4,
+        bias_layer=True,
+        bias_unembed=True,
+    )
 
-    bias = [True, False]
-    train_set = [1600, 53**2]
+    # bias = [True, False]
+    # train_set = [1600, 53**2]
 
-    for b, ts in tqdm(itertools.product(bias, train_set)):
-        mlp_config = MLPConfig(
-            N=53,
-            embed_dimension=36,
-            linear_dimension=48,
-            dimensions=48,
-            train_data_size=ts,
-            training_epochs=10001,
-            eval_interval=500,
-            weight_decay=2e-4,
-            bias_layer=b,
-            bias_unembed=b,
-        )
+    # for b, ts in tqdm(itertools.product(bias, train_set)):
+    #     mlp_config = MLPConfig(
+    #         N=53,
+    #         embed_dimension=36,
+    #         linear_dimension=48,
+    #         dimensions=48,
+    #         train_data_size=ts,
+    #         training_epochs=10001,
+    #         eval_interval=500,
+    #         weight_decay=2e-4,
+    #         bias_layer=b,
+    #         bias_unembed=b,
+    #     )
 
-        print(f"Running with bias={b}, train_data_size={ts}")
+    #     print(f"Running with bias={b}, train_data_size={ts}")
 
-        # Run the MLP basin with the current configuration
-        results = run_mlp_basin(mlp_config=mlp_config)
+    #     # Run the MLP basin with the current configuration
+    results = run_mlp_basin(mlp_config=mlp_config)
 
-        database_name = f"shared_database_{b}_{ts}.parquet"
-        # Convert results to DataFrame and append to the database
-        df = pd.DataFrame(results)
-        write_to_database(df, database_name)
+    database_name = f"shared_database_none.parquet"
+    # Convert results to DataFrame and append to the database
+    df = pd.DataFrame(results)
+    write_to_database(df, database_name)
+
+    cfg = VolumeConfig(
+        model_type="mlp",
+        model=model,
+        n_samples=100,
+        iters=15,
+        cutoff=1e-2,
+        cache_mode=None,
+        chunking=False,
+        reduction=None,
+        device=model.mlp_config.device,
+        tol=0.0351,
+        tqdm=False,
+        dataset=model.data[0],  # inputs, without labels
+        l2_reg=model.mlp_config.weight_decay,
+    )

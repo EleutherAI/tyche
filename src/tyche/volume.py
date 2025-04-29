@@ -148,7 +148,7 @@ def get_estimates_vectorized_gauss(
     fn=None,
     unary_fn=None,
     params,
-    gaussint_fn=gaussint_ln_noncentral_erf,
+    gaussint_fn=None,
     debug=False,
     tol=1e-2,
     y_tol=5,
@@ -178,6 +178,9 @@ def get_estimates_vectorized_gauss(
     gaussint_all = []
 
     torch.manual_seed(seed)
+
+    if gaussint_fn is None:
+        gaussint_fn = gaussint_ln_noncentral_erf
 
     for i in tqdm(
         range(0, n, batch_size), total=n // batch_size, disable=not with_tqdm

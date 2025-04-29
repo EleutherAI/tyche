@@ -14,6 +14,7 @@ from tyche.inductive_bias import MLP_VARIANTS, MLPConfig
 
 def measure_metrics(
     model: MLP_VARIANTS,
+    volume_config: VolumeConfig = VolumeConfig(),
     epoch: int = 0,
 ) -> dict:
     """Measure metrics for a given MLP configuration and model."""
@@ -42,23 +43,8 @@ def measure_metrics(
         metrics["train_accuracy"] = (
             (logits.argmax(dim=-1) == labels).float().mean().item()
         )
-        Warning("n_samples is only 1")
-        cfg = VolumeConfig(
-            model_type="mlp",
-            model=model,
-            n_samples=1,
-            iters=15,
-            cutoff=1e-2,
-            cache_mode=None,
-            chunking=False,
-            reduction=None,
-            device=model.mlp_config.device,
-            tol=0.0351,
-            tqdm=False,
-            dataset=model.data[0],  # inputs, without labels
-            l2_reg=model.mlp_config.weight_decay,
-        )
-        estimator = VolumeEstimator.from_config(cfg)
+
+        estimator = VolumeEstimator.from_config(volume_config)
         try:
             z = estimator.run()
             estimates_tensor = z.estimates.squeeze()
@@ -71,7 +57,11 @@ def measure_metrics(
     return metrics
 
 
-def run_train_and_estimator(custom_config: MLPConfig, gpu_id: Optional[int]):
+def run_train_and_estimator(
+    custom_config: MLPConfig,
+    gpu_id: Optional[int],
+    volume_config: VolumeConfig = VolumeConfig(),
+):
 
     t.manual_seed(custom_config.seed)
 
@@ -93,7 +83,7 @@ def run_train_and_estimator(custom_config: MLPConfig, gpu_id: Optional[int]):
 
     loss = t.nn.CrossEntropyLoss()
 
-    metrics = measure_metrics(model)
+    metrics = measure_metrics(model, volume_config=volume_config)
     metrics["epoch"] = 0
     results.append(metrics)
 
@@ -102,7 +92,7 @@ def run_train_and_estimator(custom_config: MLPConfig, gpu_id: Optional[int]):
         optimizer.zero_grad()
 
         if i % model.mlp_config.eval_interval == 0 and i > 0:
-            metrics = measure_metrics(model, epoch=i)
+            metrics = measure_metrics(model, volume_config=volume_config, epoch=i)
             metrics["epoch"] = i
             results.append(metrics)
 

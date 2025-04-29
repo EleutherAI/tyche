@@ -2,7 +2,7 @@ import gc
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import itertools
-from typing import Optional, Union, Literal
+from typing import Callable, Optional, Union, Literal
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import Dataset
@@ -41,6 +41,7 @@ class VolumeConfig:
     rtol: float = 1e-1
     init_mult: float = 1
     device: Optional[Union[str, torch.device]] = None  # Device to run on, for ConvNext
+    gaussint_fn: Optional[Callable] = None  # Function to use for Gauss integration
 
     # Model-specific parameters
     model_type: Literal["causal", "pythia", "convnext", "mlp"] = "causal"
@@ -151,6 +152,11 @@ class VolumeEstimator(ABC):
                 allow_unconverged=self.config.allow_unconverged,
                 init_mult=self.config.init_mult,
                 rtol=self.config.rtol,
+                gaussint_fn=(
+                    self.config.gaussint_fn
+                    if hasattr(self.config, "gaussint_fn")
+                    else None
+                ),
             )
 
         return estimate_results

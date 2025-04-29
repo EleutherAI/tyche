@@ -126,7 +126,53 @@ def f012_int_ln(center, x1, f0, f1, f2, debug=False):
     return diff
 
 
-@cache(save_inputs=True)
+# @cache(save_inputs=True)
+def gaussint_ln_riemann(
+    a, b, n, x1, interval_count=1e6, eps=1e-30, c=0, debug=False, *args, **kwargs
+):
+    # log(integral of exp(-1/2 ax^2 + bx + c) * x^n from 0 to x1)
+    # using the Riemann sum approximation
+
+    # start at eps to potentially avoid f(0)=-inf issues (though in practice this is not a problem)
+
+    I = torch.linspace(eps, x1.item(), int(interval_count), device=x1.device)
+    f = lambda x: -a / 2 * x**2 + b * x + c + n * torch.log(x)
+
+    lower_integral = f(I[1:])
+    upper_integral = f(I[:-1])
+
+    lower_approx = weighted_logsumexp(
+        lower_integral,
+        w=torch.tensor(
+            torch.ones_like(lower_integral) * 1 / (interval_count - 1),
+            dtype=torch.float,
+            device=x1.device,
+        ),
+        dim=-1,
+    )
+
+    upper_approx = weighted_logsumexp(
+        upper_integral,
+        w=torch.tensor(
+            torch.ones_like(upper_integral) * 1 / (interval_count - 1),
+            dtype=torch.float,
+            device=x1.device,
+        ),
+        dim=-1,
+    )
+
+    approx_error = torch.abs(upper_approx - lower_approx) / max(
+        torch.abs(upper_approx), torch.abs(lower_approx)
+    )
+    if approx_error > 0.01:
+        raise ValueError(
+            f"Relative approximation error too high {approx_error}, raise interval_count or investigate"
+        )
+
+    return ((lower_approx + upper_approx) * 0.5).unsqueeze(dim=0).unsqueeze(dim=0)
+
+
+# @cache(save_inputs=True)
 def gaussint_ln_noncentral_erf(a, b, n, x1, c=0, tol=1e-2, y_tol=5, debug=False):
     # integral of exp(-1/2 ax^2 + bx + c) * x^n
     # from 0 to x1
@@ -139,14 +185,17 @@ def gaussint_ln_noncentral_erf(a, b, n, x1, c=0, tol=1e-2, y_tol=5, debug=False)
     mu = b / a
     center = mu / 2
     dist = sqrt(mu**2 + 4 * n / a) / 2
+
     if debug:
         print(f"{a = }\n{b = }\n{n = }\n{x1 = }\n{c = }")
         print(f"{mu = }\n{center = }\n{dist = }")
     global_max = center + dist
+
     global_in_range = global_max <= x1
+
     if debug:
         print(f"{global_max=}, {global_in_range=}")
-    print(global_max > x1)
+
     max_pt = torch.minimum(global_max, x1)
     # print(max_pt)
     # get approximation stuff

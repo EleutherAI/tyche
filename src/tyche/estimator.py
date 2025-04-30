@@ -7,10 +7,14 @@ from inductive_bias.MLP_init import MLP_VARIANTS, MLPConfig
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import Dataset
-
+from jaxtyping import Float
 
 from .data import chunk_and_tokenize
-from .volume import get_estimates_vectorized_gauss, VolumeResult
+from .volume import (
+    get_estimates_vectorized_gauss,
+    VolumeResult,
+    get_estimates_vectorized_gauss_new,
+)
 from .precondition import matrix_preconditioner, diag_preconditioner
 from .utils import BASIN_VOLUME_DIR, list_largest_tensors
 from .pythia import *
@@ -44,6 +48,12 @@ class VolumeConfig:
     init_mult: float = 1
     device: Optional[Union[str, torch.device]] = None  # Device to run on, for ConvNext
     gaussint_fn: Optional[Callable] = None  # Function to use for Gauss integration
+    mean = 0
+    sigma_diag: Optional[Float[torch.Tensor, "[D]"]] = None
+    mean: Union[int, Float[torch.Tensor, "[D]"]] = 0
+    interval_count: int = 1e4
+    riemann_eps: int = 1e-30
+    new_estimator: bool = True
 
     # Model-specific parameters
     model_type: Literal["causal", "pythia", "convnext", "mlp"] = "causal"
@@ -135,33 +145,73 @@ class VolumeEstimator(ABC):
             )
             self.config.sigma = self.config.sigma * self.config.sigma_factor
 
+        if self.config.sigma_diag is None:
+            self.config.sigma_diag = torch.sqrt(
+                (self.params @ self.params) / self.params.shape[0]
+            )
+            self.config.sigma_diag = self.config.sigma_diag * self.config.sigma_factor
+            self.config.sigma_diag = (
+                torch.ones_like(self.params) * self.config.sigma_diag
+            )
+        elif type(self.config.sigma_diag) == int:
+            self.config.sigma_diag = (
+                torch.ones_like(self.params) * self.config.sigma_diag
+            )
+        else:
+            raise ValueError(
+                f"sigma_diag must be an int or tensor of shape {self.params.shape[0]} "
+            )
+
+        if type(self.config.mean) == int:
+            self.config.mean = torch.zeros_like(self.params) + self.config.mean
+
         if self.config.debug:
             print(f"{self.config.sigma = }")
 
         with torch.no_grad():
-            estimate_results = get_estimates_vectorized_gauss(
-                n=self.config.n_samples,
-                batch_size=self.config.model_batch_size,
-                sigma=self.config.sigma,
-                preconditioner=self.preconditioner,
-                fn=self.kl_fn,
-                params=self.params,
-                tol=self.config.tol,
-                y_tol=self.config.y_tol,
-                seed=self.config.seed,
-                cutoff=self.config.cutoff,
-                with_tqdm=self.config.tqdm,
-                debug=self.config.debug,
-                iters=self.config.iters,
-                allow_unconverged=self.config.allow_unconverged,
-                init_mult=self.config.init_mult,
-                rtol=self.config.rtol,
-                gaussint_fn=(
-                    self.config.gaussint_fn
-                    if hasattr(self.config, "gaussint_fn")
-                    else None
-                ),
-            )
+            if self.config.new_estimator:
+                estimate_results = get_estimates_vectorized_gauss_new(
+                    n=self.config.n_samples,
+                    params=self.params,
+                    sigma_diag=self.config.sigma_diag,
+                    mean=self.config.mean,
+                    preconditioner=self.preconditioner,
+                    fn=self.kl_fn,
+                    gaussint_fn=self.config.gaussint_fn,
+                    debug=self.config.debug,
+                    cutoff=self.config.cutoff,
+                    seed=self.config.seed,
+                    with_tqdm=self.config.tqdm,
+                    interval_count=self.config.interval_count,
+                    riemann_eps=self.config.riemann_eps,
+                    tol=self.config.tol,
+                    y_tol=self.config.y_tol,
+                    iters=self.config.iters,
+                    allow_unconverged=self.config.allow_unconverged,
+                    init_mult=self.config.init_mult,
+                    rtol=self.config.rtol,
+                )
+
+            else:
+                estimate_results = get_estimates_vectorized_gauss(
+                    n=self.config.n_samples,
+                    batch_size=self.config.model_batch_size,
+                    sigma=self.config.sigma,
+                    preconditioner=self.preconditioner,
+                    fn=self.kl_fn,
+                    params=self.params,
+                    tol=self.config.tol,
+                    y_tol=self.config.y_tol,
+                    seed=self.config.seed,
+                    cutoff=self.config.cutoff,
+                    with_tqdm=self.config.tqdm,
+                    debug=self.config.debug,
+                    iters=self.config.iters,
+                    allow_unconverged=self.config.allow_unconverged,
+                    init_mult=self.config.init_mult,
+                    rtol=self.config.rtol,
+                    gaussint_fn=self.config.gaussint_fn,
+                )
 
         return estimate_results
 

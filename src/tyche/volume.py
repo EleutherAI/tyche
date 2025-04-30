@@ -1,8 +1,10 @@
+from typing import Optional, Union
 import einops as eo
 from dataclasses import dataclass
+from inductive_bias.local_cache import cache
 from tqdm import tqdm
 import torch
-
+from jaxtyping import Float
 
 from .utils import norm, unit, logrectdet, weighted_logsumexp, print_gpu_memory
 from .math import (
@@ -27,7 +29,10 @@ def find_radius_vectorized(
     allow_unconverged=False,
     init_mult=1,
     jump=2.0,
+    **kwargs,
 ):
+    # print all the arguments
+
     """
     Find the basin radius for a function along a batch of direction vectors.
     This uses a binary search, multiplying by `jump` when unbounded above.
@@ -54,6 +59,7 @@ def find_radius_vectorized(
         - Assumes `fn` is monotonic (but often works even if it isn't)
         - The basin radius is mults * norm(vecs), not mults
     """
+
     # number of direction vectors
     batch_size = len(vecs)
 
@@ -139,6 +145,96 @@ class VolumeResult:
     gaussint: torch.Tensor
 
 
+def get_estimates_vectorized_gauss_new(
+    n,
+    params: Float[torch.Tensor, "[D]"],
+    sigma_diag: Float[torch.Tensor, "[D]"],
+    mean: Float[torch.Tensor, "[D]"],
+    preconditioner=None,
+    fn=None,
+    gaussint_fn=None,
+    debug=False,
+    cutoff=1e-2,
+    seed=1,
+    with_tqdm=True,
+    **kwargs,
+):
+
+    implicit = isinstance(params, ImplicitVector)
+    if implicit:
+        raise NotImplementedError("ImplicitVector not supported for new version")
+
+    center = params
+    mean = center
+
+    estimates_all = []
+    props_all = []
+    mults_all = []
+    deltas_all = []
+    gaussint_all = []
+
+    torch.manual_seed(seed)
+
+    D = center.shape[0]
+    sigma_inverse = 1 / sigma_diag
+
+    if gaussint_fn is None:
+        gaussint_fn = gaussint_ln_noncentral_erf
+
+    for i in tqdm(range(0, n), total=n, disable=not with_tqdm):
+
+        vecs = torch.randn(D, device=center.device, dtype=center.dtype)
+        vecs = vecs / torch.norm(vecs)
+        if preconditioner is not None:
+            vecs = preconditioner(vecs)
+
+        props = torch.norm(vecs).unsqueeze(0)  # shouldnt this always be one?
+
+        mults, deltas = find_radius_vectorized(
+            center, vecs.unsqueeze(0), fn=fn, cutoff=cutoff, **kwargs
+        )
+
+        x1 = mults
+
+        a = vecs * sigma_inverse**2 @ vecs  # This computes <u,u>_A
+
+        b = -2 * (vecs * sigma_inverse**2 @ mean)  # This computes -2*<u,mean>_A
+
+        c = mean * sigma_inverse**2 @ mean  # This computes <mean,mean>_A
+
+        # Normalize b and c
+        b = -b / 2
+        c = -c / 2
+
+        gaussint = gaussint_fn(a=a, b=b, n=D - 1, x1=x1, c=c, debug=debug, **kwargs)
+
+        gauss_normalization_const = (
+            -(D / 2) * (log(2 * torch.pi)) + log(sigma_diag).sum()
+        )
+
+        logconst = (
+            log_hyperball_volume(D) + log(D) + gauss_normalization_const
+        )  # Louis: We should make sure this is correct
+
+        # including prefactor and importance sampling correction
+        estimates = gaussint + logconst
+
+        estimates_all.append(estimates)
+        props_all.append(props)
+        mults_all.append(mults)
+        deltas_all.append(deltas)
+        gaussint_all.append(gaussint)
+
+    # concatenate all the lists
+    estimates_all = torch.cat(estimates_all)
+    props_all = torch.cat(props_all)
+    mults_all = torch.cat(mults_all)
+    deltas_all = torch.cat(deltas_all)
+    gaussint_all = torch.cat(gaussint_all)
+
+    return VolumeResult(estimates_all, props_all, mults_all, deltas_all, gaussint_all)
+
+
 def get_estimates_vectorized_gauss(
     n,
     sigma,
@@ -158,6 +254,7 @@ def get_estimates_vectorized_gauss(
     rtol=1e-1,
     **kwargs,
 ):
+
     implicit = isinstance(params, ImplicitVector)
 
     if fn is None:
@@ -218,14 +315,19 @@ def get_estimates_vectorized_gauss(
             "rtol": rtol,
             "init_mult": init_mult,
             **kwargs,
-        }
+        }  # Louis: I think this just shouldn't be here? the config.cutoff and config.iters will be overwritten
+
         mults, deltas = find_radius_vectorized(center, vecs, **kwargs)
 
         x1 = mults * props
         a = 1 / sigma**2
+
         vc = (vecs[0] @ center).unsqueeze(0) if implicit else vecs @ center
+
         b = -vc / (sigma**2 * props)
+
         c = -(center @ center) / (2 * sigma**2)
+
         if debug:
             print_gpu_memory()
 
@@ -235,6 +337,7 @@ def get_estimates_vectorized_gauss(
         gaussint = gaussint_fn(
             a=a, b=b, n=D - 1, x1=x1, c=c, tol=tol, y_tol=y_tol, debug=debug
         )
+
         logconst = (
             log_hyperball_volume(D) + log(D) - (D / 2) * log(2 * torch.pi * sigma**2)
         )

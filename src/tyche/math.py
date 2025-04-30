@@ -1,5 +1,6 @@
 # import jax
 # import jax.numpy as jnp
+from inductive_bias.local_cache import cache
 import numpy as np
 
 # import jax.scipy as jsp
@@ -126,15 +127,14 @@ def f012_int_ln(center, x1, f0, f1, f2, debug=False):
 
 
 def gaussint_ln_riemann(
-    a, b, n, x1, interval_count=1e4, eps=1e-30, c=0, debug=False, *args, **kwargs
+    a, b, n, x1, interval_count=1e4, riemann_eps=1e-30, c=0, *args, **kwargs
 ):
-
     # log(integral of exp(-1/2 ax^2 + bx + c) * x^n from 0 to x1)
     # using the Riemann sum approximation
-
+    # TODO: Do I even need the eps?
     # start at eps to potentially avoid f(0)=-inf issues (though in practice this is not a problem)
 
-    I = torch.linspace(eps, x1.item(), int(interval_count), device=x1.device)
+    I = torch.linspace(riemann_eps, x1.item(), int(interval_count), device=x1.device)
     f = lambda x: -a / 2 * x**2 + b * x + c + n * torch.log(x)
 
     lower_integral = f(I[1:])
@@ -163,6 +163,7 @@ def gaussint_ln_riemann(
     approx_error = torch.abs(upper_approx - lower_approx) / max(
         torch.abs(upper_approx), torch.abs(lower_approx)
     )
+
     if approx_error > 0.01:
         raise ValueError(
             f"Relative approximation error too high {approx_error}, raise interval_count or investigate"

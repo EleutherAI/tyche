@@ -3,10 +3,11 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import itertools
 from typing import Callable, Optional, Union, Literal
+from inductive_bias.MLP_init import MLP_VARIANTS, MLPConfig
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import Dataset
-from tyche.inductive_bias import MLP_VARIANTS, MLPConfig
+
 
 from .data import chunk_and_tokenize
 from .volume import get_estimates_vectorized_gauss, VolumeResult

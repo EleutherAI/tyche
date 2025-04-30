@@ -828,6 +828,91 @@ def multi_plot(df_path: str, save_dir: str = "multi_heatmaps"):
     )
 
 
+def plot_indicator_table(model, params, save=False):
+    device = next(model.parameters()).device
+    N = params.N
+    group_set = [[i, j, (i + j) % N] for i in range(N) for j in range(N)]
+    inputs = t.tensor([g[:2] for g in group_set], dtype=t.long).to(device)
+
+    with t.no_grad():
+        model.eval()
+        logits = model(inputs)  # shape N^2 x N
+        max_prob_entry = t.argmax(logits, dim=-1)  # shape N^2
+
+    output_matrix = einops.rearrange(max_prob_entry, "(n m) -> n m", n=N)  # shape N x N
+    hover_labels = [[f"{output_matrix[j][i]}" for i in range(N)] for j in range(N)]
+    row_labels = [str(g) for g in range(N)]
+    col_labels = row_labels
+
+    # Generate N different colors for the heatmap
+    import plotly.colors as pc
+
+    # Using a colorscale that works well for categorical data
+    if N <= 10:
+        # For small N, use distinct colors from the Plotly qualitative colorscales
+        colors = pc.qualitative.Plotly[:N]
+    else:
+        # For larger N, generate a continuous colorscale with N distinct colors
+        colorscale = pc.sequential.Viridis
+        colors = [pc.sample_colorscale(colorscale, i / (N - 1))[0] for i in range(N)]
+
+    # Create the colorscale with proper scaling between 0 and 1
+    custom_colorscale = []
+    for i in range(N):
+        # Lower bound for this color
+        custom_colorscale.append([i / N, colors[i]])
+        # Upper bound for this color (except for the last color)
+        if i < N - 1:
+            custom_colorscale.append([(i + 1) / N, colors[i]])
+
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=output_matrix.tolist(),
+            showscale=False,
+            colorscale=custom_colorscale,
+            x=col_labels,
+            y=row_labels,
+            zmin=0,
+            zmax=N - 1,
+            customdata=hover_labels,
+            hovertemplate="x=%{x}<br>"
+            + "y=%{y}<br>"
+            + "z=%{customdata}<extra></extra>",
+        ),
+    )
+
+    fig.update_layout(
+        title=f"Final run",
+        xaxis={
+            "showgrid": True,
+            "side": "top",
+            "ticks": "outside",
+            "tickmode": "array",
+            "tickvals": [i for i in range(N)],
+            "ticktext": row_labels,
+        },
+        yaxis={
+            "showgrid": True,
+            # "autorange": "reversed",
+            "side": "left",
+            "ticks": "outside",
+            "tickmode": "array",
+            "tickvals": [i for i in range(N)],
+            "ticktext": col_labels,
+        },
+        height=900,
+        width=900,
+    )
+
+    if save:
+        # Create plots directory if it doesn't exist
+        if not os.path.exists("plots"):
+            os.mkdir("plots")
+        fig.write_html("./plots/plot_final.html")
+
+    return fig
+
+
 if __name__ == "__main__":
 
     # Example usage

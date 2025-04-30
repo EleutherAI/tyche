@@ -3,6 +3,7 @@ import datetime
 import itertools
 import os
 import einops
+from inductive_bias.MLP_init import MLP_VARIANTS, MLPConfig
 import numpy as np
 from torch import nn
 import torch as t
@@ -10,7 +11,6 @@ from typing import Callable, List, Optional, Tuple, Union
 from jaxtyping import Float, Int
 from tqdm import tqdm
 from tyche.estimator import VolumeConfig, VolumeEstimator
-from tyche.inductive_bias import MLP_VARIANTS, MLPConfig
 
 
 def measure_metrics(

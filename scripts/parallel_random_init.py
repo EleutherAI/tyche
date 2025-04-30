@@ -1,6 +1,8 @@
 import copy
 import itertools
 import math
+from inductive_bias.MLP_init import MLPConfig
+from inductive_bias.MLP_metrics import run_train_and_estimator
 import torch as t
 from torch.multiprocessing import Pool, Process, set_start_method, Manager
 import os
@@ -9,9 +11,7 @@ from tqdm.auto import tqdm
 import pandas as pd
 import numpy as np
 from tyche.estimator import VolumeConfig, VolumeEstimator
-from tyche.MLP_metrics import run_train_and_estimator
-from tyche.inductive_bias import MLPConfig
-from tyche.local_cache import CacheContext
+
 from tyche.math import gaussint_ln_riemann
 
 

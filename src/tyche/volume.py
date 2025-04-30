@@ -2,7 +2,7 @@ import einops as eo
 from dataclasses import dataclass
 from tqdm import tqdm
 import torch
-from tyche.local_cache import cache
+
 
 from .utils import norm, unit, logrectdet, weighted_logsumexp, print_gpu_memory
 from .math import (

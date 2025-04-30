@@ -7,7 +7,6 @@ import scipy as sp
 
 # from jax.scipy.special import logsumexp
 import torch
-from tyche.local_cache import cache
 
 from .utils import weighted_logsumexp
 

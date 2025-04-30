@@ -126,10 +126,10 @@ def f012_int_ln(center, x1, f0, f1, f2, debug=False):
     return diff
 
 
-# @cache(save_inputs=True)
 def gaussint_ln_riemann(
-    a, b, n, x1, interval_count=1e6, eps=1e-30, c=0, debug=False, *args, **kwargs
+    a, b, n, x1, interval_count=1e4, eps=1e-30, c=0, debug=False, *args, **kwargs
 ):
+
     # log(integral of exp(-1/2 ax^2 + bx + c) * x^n from 0 to x1)
     # using the Riemann sum approximation
 
@@ -172,7 +172,6 @@ def gaussint_ln_riemann(
     return ((lower_approx + upper_approx) * 0.5).unsqueeze(dim=0).unsqueeze(dim=0)
 
 
-# @cache(save_inputs=True)
 def gaussint_ln_noncentral_erf(a, b, n, x1, c=0, tol=1e-2, y_tol=5, debug=False):
     # integral of exp(-1/2 ax^2 + bx + c) * x^n
     # from 0 to x1
@@ -182,6 +181,7 @@ def gaussint_ln_noncentral_erf(a, b, n, x1, c=0, tol=1e-2, y_tol=5, debug=False)
 
     # TODO: "damn the torpedoes" mode, i.e. don't check accuracy
     # find highest point <= x1
+
     mu = b / a
     center = mu / 2
     dist = sqrt(mu**2 + 4 * n / a) / 2
@@ -269,4 +269,7 @@ def gaussint_ln_noncentral_erf(a, b, n, x1, c=0, tol=1e-2, y_tol=5, debug=False)
         print()
         print("f012_int_ln inputs:")
         print(f"{max_pt = }\n{x1 = }\n{f0 = }\n{f1 = }\n{f2 = }\n{c = }")
-    return f012_int_ln(max_pt, x1, f0, f1, f2, debug=debug) + constant_term
+
+    result = f012_int_ln(max_pt, x1, f0, f1, f2, debug=debug) + constant_term
+
+    return result

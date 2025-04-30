@@ -3,6 +3,7 @@ import datetime
 import itertools
 import os
 import einops
+import numpy as np
 from torch import nn
 import torch as t
 from typing import Callable, List, Optional, Tuple, Union
@@ -49,6 +50,8 @@ def measure_metrics(
             z = estimator.run()
             estimates_tensor = z.estimates.squeeze()
             estimates = estimates_tensor.detach().cpu().numpy()
+            if estimates.ndim == 0:
+                estimates = np.expand_dims(estimates, axis=0)  # Convert 0D arrays to 1D
         except ValueError as e:
             estimates = None
 
@@ -76,6 +79,10 @@ def run_train_and_estimator(
 
     model = MLP_VARIANTS(custom_config)
     model.initialize_weights()
+
+    volume_config.model = model
+    volume_config.device = device
+    volume_config.dataset = model.data[0]  # inputs, without labels
 
     optimizer = t.optim.Adam(
         model.parameters(), lr=custom_config.lr, weight_decay=custom_config.weight_decay

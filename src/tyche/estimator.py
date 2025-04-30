@@ -28,6 +28,7 @@ class VolumeConfig:
     n_samples: int = 100
     model_batch_size: Optional[int] = None
     sigma: Optional[float] = None  # If None, compute from params
+    sigma_factor: float = 1.0  # Multiplier for sigma from init TODO: Make this nicer
     l2_reg: float = 0.0
     cutoff: float = 1e-2
     tol: float = 1e-2
@@ -131,6 +132,8 @@ class VolumeEstimator(ABC):
             self.config.sigma = torch.sqrt(
                 (self.params @ self.params) / self.params.shape[0]
             )
+            self.config.sigma = self.config.sigma * self.config.sigma_factor
+
         if self.config.debug:
             print(f"{self.config.sigma = }")
 

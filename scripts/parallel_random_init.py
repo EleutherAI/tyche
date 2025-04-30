@@ -11,6 +11,8 @@ import numpy as np
 from tyche.estimator import VolumeConfig, VolumeEstimator
 from tyche.MLP_metrics import run_train_and_estimator
 from tyche.inductive_bias import MLPConfig
+from tyche.local_cache import CacheContext
+from tyche.math import gaussint_ln_riemann
 
 
 class GaussianActivation(t.nn.Module):
@@ -96,14 +98,16 @@ except RuntimeError:
     pass
 
 
-def process_chunk(configs, gpu_id, results_list):
+def process_chunk(configs, gpu_id, results_list, volume_config):
     """Process a chunk of configurations on a specific GPU and add to shared results list"""
     for config in tqdm(configs, desc=f"GPU {gpu_id}"):
-        results = run_train_and_estimator(config, gpu_id)
+        results = run_train_and_estimator(config, gpu_id, volume_config=volume_config)
         results_list += results
 
 
-def run_mlp_basin(mlp_config: MLPConfig = MLPConfig()):
+def run_mlp_basin(
+    mlp_config: MLPConfig = MLPConfig(), volume_config: VolumeConfig = VolumeConfig()
+):
     start_gpu = 0
     num_gpus = 8
     assert num_gpus + start_gpu <= 8, "This script is designed to run on 8 GPUs max."
@@ -144,7 +148,10 @@ def run_mlp_basin(mlp_config: MLPConfig = MLPConfig()):
         for i, gpu_id in enumerate(range(start_gpu, start_gpu + num_gpus)):
             # Use i to index into chunks, but use gpu_id for the actual GPU device
             process_configs = chunks[i]  # Access chunks using index 0 to num_gpus-1
-            p = Process(target=process_chunk, args=(process_configs, gpu_id, results))
+            p = Process(
+                target=process_chunk,
+                args=(process_configs, gpu_id, results, volume_config),
+            )
             processes.append(p)
             p.start()
         # Wait for all processes to complete
@@ -193,25 +200,27 @@ if __name__ == "__main__":
     #     print(f"Running with bias={b}, train_data_size={ts}")
 
     #     # Run the MLP basin with the current configuration
-    results = run_mlp_basin(mlp_config=mlp_config)
-
-    database_name = f"shared_database_none.parquet"
-    # Convert results to DataFrame and append to the database
-    df = pd.DataFrame(results)
-    write_to_database(df, database_name)
 
     cfg = VolumeConfig(
         model_type="mlp",
-        model=model,
         n_samples=100,
         iters=15,
         cutoff=1e-2,
         cache_mode=None,
         chunking=False,
         reduction=None,
-        device=model.mlp_config.device,
         tol=0.0351,
         tqdm=False,
-        dataset=model.data[0],  # inputs, without labels
-        l2_reg=model.mlp_config.weight_decay,
+        gaussint_fn=gaussint_ln_riemann,
+        # gaussint_fn=None,
     )
+
+    for sigma_factor in [3, 10]:
+        cfg.sigma_factor = sigma_factor
+        results = run_mlp_basin(mlp_config=mlp_config, volume_config=cfg)
+
+        database_name = f"shared_database_{sigma_factor}.parquet"
+        # Convert results to DataFrame and append to the database
+        df = pd.DataFrame(results)
+
+        write_to_database(df, database_name)

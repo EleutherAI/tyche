@@ -836,9 +836,7 @@ if __name__ == "__main__":
     train_set = [1600, 53**2]
 
     for b, ts in tqdm(itertools.product(bias, train_set)):
-        df_path = (
-            f"/home/louis/tyche/scripts/shared_database_{b}_{ts}.parquet"
-        )
+        df_path = f"/home/louis/tyche/scripts/shared_database_{b}_{ts}.parquet"
         save_dir = f"multiplot_{b}_{ts}"
         multi_plot(df_path, save_dir=save_dir)
         print("Multi-plot generation complete.")

@@ -18,7 +18,8 @@ def measure_metrics(
     volume_config: VolumeConfig = VolumeConfig(),
     epoch: int = 0,
 ) -> dict:
-    """Measure metrics for a given MLP configuration and model."""
+    """Measure metrics for a given MLP configuration and model:
+    {Train, test}+{loss, accuracy}, volume estimates."""
 
     metrics = {}
     loss = t.nn.CrossEntropyLoss()
@@ -65,6 +66,7 @@ def run_train_and_estimator(
     gpu_id: Optional[int],
     volume_config: VolumeConfig = VolumeConfig(),
 ):
+    """Train MLP model and measure metrics every custom_config.eval_interval epochs."""
 
     t.manual_seed(custom_config.seed)
 

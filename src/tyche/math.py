@@ -131,9 +131,8 @@ def gaussint_ln_riemann(
 ):
     # log(integral of exp(-1/2 ax^2 + bx + c) * x^n from 0 to x1)
     # using the Riemann sum approximation
-    # TODO: Do I even need the eps?
     # start at eps to potentially avoid f(0)=-inf issues (though in practice this is not a problem)
-
+    # TODO: Do I even need the eps?
     I = torch.linspace(riemann_eps, x1.item(), int(interval_count), device=x1.device)
     f = lambda x: -a / 2 * x**2 + b * x + c + n * torch.log(x)
 

@@ -159,6 +159,9 @@ def get_estimates_vectorized_gauss_new(
     with_tqdm=True,
     **kwargs,
 ):
+    """Estimate the volume using Riemann integral of star domain.
+    We assume that the pdf is centered at mean and has diagonal covariance sigma_diag.
+    """
 
     implicit = isinstance(params, ImplicitVector)
     if implicit:

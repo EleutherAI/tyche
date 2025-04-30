@@ -108,11 +108,15 @@ def process_chunk(configs, gpu_id, results_list, volume_config):
 def run_mlp_basin(
     mlp_config: MLPConfig = MLPConfig(), volume_config: VolumeConfig = VolumeConfig()
 ):
+    """Helper function to run the run_train_and_estimator function (via process chunk) with parallelization across multiple GPUs."""
+
     start_gpu = 0
     num_gpus = 8
     assert num_gpus + start_gpu <= 8, "This script is designed to run on 8 GPUs max."
 
     num_samples = 100
+
+    # Get all configs
     all_configs = []
     for (activ_fn, intermediate_fn), d, w, weight_mode, i in itertools.product(
         ACTIVATION_PAIRS, DEPTH, WEIGHTSCALE, WEIGHT_MODES, range(num_samples)
@@ -215,12 +219,10 @@ if __name__ == "__main__":
         # gaussint_fn=None,
     )
 
-    for sigma_factor in [3, 10]:
-        cfg.sigma_factor = sigma_factor
-        results = run_mlp_basin(mlp_config=mlp_config, volume_config=cfg)
+    results = run_mlp_basin(mlp_config=mlp_config, volume_config=cfg)
 
-        database_name = f"shared_database_{sigma_factor}.parquet"
-        # Convert results to DataFrame and append to the database
-        df = pd.DataFrame(results)
+    database_name = f"shared_database_.parquet"
+    # Convert results to DataFrame and append to the database
+    df = pd.DataFrame(results)
 
-        write_to_database(df, database_name)
+    write_to_database(df, database_name)

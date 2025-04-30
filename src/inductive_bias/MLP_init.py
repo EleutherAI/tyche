@@ -69,6 +69,8 @@ def random_data(mlp_config: MLPConfig):
 
 
 class MLP_VARIANTS(t.nn.Module):
+    """Initializes MLP which can vary across multiple hyperparameters"""
+
     def __init__(self, mlp_config: MLPConfig):
         super().__init__()
 
@@ -205,6 +207,8 @@ class MLP_VARIANTS(t.nn.Module):
         x: Float[t.Tensor, "batch_size embed_dim"],
         y: Float[t.Tensor, "batch_size embed_dim"],
     ) -> Float[t.Tensor, "batch_size embedding"]:
+        """ "Map post embed to pre unembed space, if intermediate== pure
+        this does what you think it should do"""
 
         d = self.embed_dimension
 
@@ -263,7 +267,7 @@ class MLP_VARIANTS(t.nn.Module):
                 y, "batch (embed_dim c) -> batch embed_dim c", c=4
             )
             quat_prod = t.zeros_like(x_quat)
-            # TODO: check this again
+
             quat_prod[..., 0] = (
                 x_quat[..., 0] * y_quat[..., 0]
                 - x_quat[..., 1] * y_quat[..., 1]

@@ -10,7 +10,8 @@ data/pile*
 *.out
 *.npy
 out_*.txt
-
+*.html
+*.parquet
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

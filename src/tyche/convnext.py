@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Optional, Union
 import torch
 
 # import jax
@@ -82,7 +83,9 @@ def load_cifar10_val(size: int = 512) -> tuple[torch.Tensor, torch.Tensor]:
     return pixel_values, labels
 
 
-def load_cifar10_splits(size: int = 512, seed: int = 42):
+def load_cifar10_splits(
+    size: int = 512, seed: int = 42, device: Optional[Union[str, torch.device]] = None
+):
 
     ds = load_dataset("cifar10")
     train_split = ds["train"].train_test_split(train_size=30000, seed=seed)
@@ -123,7 +126,9 @@ def load_cifar10_splits(size: int = 512, seed: int = 42):
     }
 
 
-def load_cifar10_splits_dict(device, size: int = 512, seed: int = 42, max_clean: int = 30000):
+def load_cifar10_splits_dict(
+    device, size: int = 512, seed: int = 42, max_clean: int = 30000
+):
     """Returns splits with their labels as a dictionary"""
     ds = load_dataset("cifar10")
 

@@ -19,7 +19,6 @@ def plot_direction_cost(
     steps: int = 100,
     plot=True,
 ):
-
     sample_mistake = False
 
     RUNS_DIR = "/mnt/ssd-1/adam/basin-volume/runs"

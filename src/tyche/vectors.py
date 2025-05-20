@@ -30,16 +30,32 @@ class ImplicitVector(ABC):
         """Compute matrix product with another implicit vector."""
         return self.dot(other)
 
+
 class ImplicitParamVector(ImplicitVector):
-    def __init__(self, module: torch.nn.Module, block_size: int):
+    def __init__(self, module: torch.nn.Module, block_size: int, filter_str: str = None):
         super().__init__(block_size, module.device)
         self.module = module
-    
+        self.filter_str = filter_str  # e.g., "layers.15"
+
     def blocks(self) -> Iterator[torch.Tensor]:
-        for param in self.module.parameters():
+        for name, param in self.module.named_parameters():
+            if self.filter_str is not None and self.filter_str not in name:
+                continue
             flat_param = param.view(-1)
             for i in range(0, flat_param.numel(), self.block_size):
                 yield flat_param[i:i + self.block_size]
+
+
+# class ImplicitParamVector(ImplicitVector):
+#     def __init__(self, module: torch.nn.Module, block_size: int):
+#         super().__init__(block_size, module.device)
+#         self.module = module
+    
+#     def blocks(self) -> Iterator[torch.Tensor]:
+#         for param in self.module.parameters():
+#             flat_param = param.view(-1)
+#             for i in range(0, flat_param.numel(), self.block_size):
+#                 yield flat_param[i:i + self.block_size]
     
     def add_(self, other: ImplicitVector) -> None:
         """Add another vector to this parameter vector."""
@@ -55,11 +71,21 @@ class ImplicitParamVector(ImplicitVector):
             for param_block, other_block in zip(self.blocks(), other.blocks()):
                 param_block.sub_(other_block, alpha=mul_factor)
 
+
+
+
 class ImplicitRandomVector(ImplicitVector):
     def __init__(self, seed: int, ref_vector: ImplicitParamVector):
         super().__init__(ref_vector.block_size, ref_vector.device)
         self.seed = seed
         self.ref_vector = ref_vector
+
+
+# class ImplicitRandomVector(ImplicitVector):
+#     def __init__(self, seed: int, ref_vector: ImplicitParamVector):
+#         super().__init__(ref_vector.block_size, ref_vector.device)
+#         self.seed = seed
+#         self.ref_vector = ref_vector
     
     def __mul__(self, scalar: float) -> 'ImplicitRandomVector':
         """Lazy scalar multiplication."""
@@ -74,15 +100,32 @@ class ImplicitRandomVector(ImplicitVector):
     def __neg__(self) -> 'ImplicitRandomVector':
         return self.__mul__(-1)
     
+    # def blocks(self) -> Iterator[torch.Tensor]:
+    #     generator = torch.Generator(device=self.device)
+    #     generator.manual_seed(self.seed)
+    #     for param in self.ref_vector.module.parameters():
+    #         flat_param = param.view(-1)
+    #         for i in range(0, flat_param.numel(), self.block_size):
+    #             block_size = min(self.block_size, flat_param.numel() - i)
+    #             random_block = torch.randn(block_size, generator=generator, 
+    #                                      device=self.device, dtype=param.dtype)
+    #             yield random_block
+
     def blocks(self) -> Iterator[torch.Tensor]:
+        # print(f"[filter={self.ref_vector.filter_str}] using param: {name}")
+
         generator = torch.Generator(device=self.device)
         generator.manual_seed(self.seed)
-        for param in self.ref_vector.module.parameters():
+        for name, param in self.ref_vector.module.named_parameters():
+            if self.ref_vector.filter_str is not None and self.ref_vector.filter_str not in name:
+                continue
+            # print(f"[filter={self.ref_vector.filter_str}] using param: {name}")  # <-- Moved inside
+
             flat_param = param.view(-1)
             for i in range(0, flat_param.numel(), self.block_size):
                 block_size = min(self.block_size, flat_param.numel() - i)
-                random_block = torch.randn(block_size, generator=generator, 
-                                         device=self.device, dtype=param.dtype)
+                random_block = torch.randn(block_size, generator=generator,
+                                    device=self.device, dtype=param.dtype)
                 yield random_block
 
     @cached_property

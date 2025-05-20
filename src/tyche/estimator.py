@@ -18,7 +18,10 @@ from .convnext import (
     load_convnext_adam_vectors
 )
 from .vectors import ImplicitVector, ImplicitParamVector, ImplicitRandomVector
-print("hello")
+import os
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+
 @dataclass
 class VolumeConfig:
     # Common parameters
@@ -67,6 +70,9 @@ class VolumeConfig:
     adam_order: int = 2  # 1 for exp_avg, 2 for exp_avg_sq
 
     last_token_only: bool = False
+    # perturbation_mask: Optional[torch.Tensor] = None
+    filter_str: Optional[str] = None
+
 
 class VolumeEstimator(ABC):
     def __init__(self, config: VolumeConfig):
@@ -136,7 +142,9 @@ class VolumeEstimator(ABC):
             iters=self.config.iters,
             allow_unconverged=self.config.allow_unconverged,
             init_mult=self.config.init_mult,
-            rtol=self.config.rtol,
+            rtol=self.config.rtol
+            # perturbation_mask=self.config.perturbation_mask
+
         )
     
     @classmethod
@@ -146,7 +154,7 @@ class VolumeEstimator(ABC):
         elif config.model_type == "convnext":
             return ConvNextEstimator(config)
         elif config.model_type == "mlp":
-            raise NotImplementedError("MLP requires JAX, see branch `jax-hybrid`")
+            raise NotImplementedError("MLP requires JAX, see branch jax-hybrid")
         elif config.model_type == "causal":
             assert config.model is not None, "model must be provided for causal models"
             assert config.tokenizer is not None, "tokenizer must be provided for causal models"
@@ -169,8 +177,10 @@ class CausalLMEstimator(VolumeEstimator):
             self.config.text_key = "text"
             
     def setup_model(self):
-        self.latest_original_logits = []
-        self.latest_perturbed_logits = []
+        # self.latest_original_logits = []
+        # self.latest_perturbed_logits = []
+        print(f"CUDA Allocated: {torch.cuda.memory_allocated() / 1e9:.2f} GB")
+
 
         self.model = self.config.model
         self.tokenizer = self.config.tokenizer
@@ -180,7 +190,13 @@ class CausalLMEstimator(VolumeEstimator):
         self.model.to("cuda")
 
         if self.config.implicit_vectors:
-            self.params = ImplicitParamVector(self.model, self.config.block_size)
+            # self.params = ImplicitParamVector(self.model, self.config.block_size)
+            self.params = ImplicitParamVector(
+                self.model,
+                block_size=self.config.block_size,
+                filter_str=self.config.filter_str
+            )
+
         else:
             self.params = torch.nn.utils.parameters_to_vector(self.model.parameters()).detach()
 
@@ -211,8 +227,29 @@ class CausalLMEstimator(VolumeEstimator):
         tokens = tokens[:self.config.val_size]
         print(f"{tokens.shape=}")
         self.val_data = tokens.to("cuda")
-        logits_p = self.apply_fn(self.params, self.val_data)
-        self.latest_original_logits = logits_p.detach().cpu()
+
+        import gc
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        print(f"Memory allocated: {torch.cuda.memory_allocated() / 1e9:.2f} GB")
+        print(f"Memory reserved: {torch.cuda.memory_reserved() / 1e9:.2f} GB")
+
+        # logits_p = self.apply_fn(self.params, self.val_data)
+
+        self.config.data_batch_size = min(16, self.val_data.shape[0])
+
+        logits_list = []
+        for i in range(0, self.val_data.shape[0], self.config.data_batch_size):
+            batch = self.val_data[i:i + self.config.data_batch_size]
+            with torch.no_grad():
+                logits = self.apply_fn(self.params, batch)
+                logits_list.append(logits)
+        logits_p = torch.cat(logits_list, dim=0)
+
+
+
+        # self.latest_original_logits = logits_p.detach().cpu()
 
         if self.config.cache_mode:
             self.probs_p = torch.nn.functional.softmax(logits_p, dim=-1)
@@ -235,10 +272,6 @@ class CausalLMEstimator(VolumeEstimator):
                 else:
                     raise ValueError(f"Invalid cache mode: {self.config.cache_mode}")
                 
-            # self.probs_p = torch.cat(probs_p_list, dim=0)
-            # self.latest_original_logits = torch.cat(logits_p_list, dim=0)
-            # if self.config.cache_mode:
-            #     self.logits_p = torch.cat(logits_p_list, dim=0)  # Raw unperturbed logits (same shape as val_data)
 
         else:
             self.probs_p = None
@@ -302,7 +335,16 @@ class CausalLMEstimator(VolumeEstimator):
 
                 # Always store the latest logits
                 # self.latest_original_logits.append(logits_p.detach().cpu())
-                self.latest_perturbed_logits.append(logits_q.detach().cpu())
+                # self.latest_perturbed_logits.append(logits_q.detach().cpu())
+                # self.latest_perturbed_logits = [logits_q.detach().cpu()]
+                print(f"CUDA Allocated: {torch.cuda.memory_allocated() / 1e9:.2f} GB")
+
+
+                # del logits_q
+                # gc.collect()
+                # torch.cuda.empty_cache()
+
+
                 # print("=== Debugging KL divergence shapes ===")
                 # print(f"logprobs_q shape: {logprobs_q.shape}")
                 # print(f"probs_p_seq shape: {probs_p_seq.shape}")

@@ -108,6 +108,8 @@ class VolumeResult:
     mults: torch.Tensor
     deltas: torch.Tensor
     gaussint: torch.Tensor
+    # logits_original: torch.Tensor = None
+    # logits_perturbed: torch.Tensor = None 
 
 def get_estimates_vectorized_gauss(n, 
                                    sigma,
@@ -167,6 +169,26 @@ def get_estimates_vectorized_gauss(n,
             assert not implicit, "preconditioner only supported for concrete vectors"
             vecs = preconditioner(vecs)
 
+        
+        # perturbation_mask = kwargs.get("perturbation_mask", None)
+        # if perturbation_mask is not None:
+        #     if isinstance(vecs, list):
+        #         # Create a new implicit vector that applies the mask
+        #         from .vectors import ImplicitMaskedRandomVector
+        #         vecs = [ImplicitMaskedRandomVector(vecs[0], perturbation_mask)]
+
+        #     else:
+
+        #         # store the perturbation mask as an implicit vector? 
+        #         # move everything to cpu then multiply??/
+
+        #         # Handle explicit vectors case - apply mask directly
+        #         if isinstance(perturbation_mask, list):
+        #             perturbation_mask = torch.tensor(perturbation_mask, dtype=vecs.dtype, device=vecs.device)
+        #         else:
+        #             perturbation_mask = perturbation_mask.to(dtype=vecs.dtype, device=vecs.device)
+        #         vecs = vecs * perturbation_mask.unsqueeze(0)
+
         if implicit:
             props = norm(vecs[0]).unsqueeze(0)
         else:
@@ -176,6 +198,14 @@ def get_estimates_vectorized_gauss(n,
 
         kwargs = {'cutoff': 1e-3, 'fn': fn, 'iters': 100, 'rtol': rtol, 'init_mult': init_mult, **kwargs}
         mults, deltas = find_radius_vectorized(center, vecs, **kwargs)
+
+
+        # Create a copy of kwargs without 'perturbation_mask'
+        # find_radius_kwargs = {k: v for k, v in kwargs.items() if k != 'perturbation_mask'}
+        # find_radius_kwargs.update({'cutoff': 1e-3, 'fn': fn, 'iters': 100, 'rtol': rtol, 'init_mult': init_mult})
+
+        # Use find_radius_kwargs instead of kwargs
+        # mults, deltas = find_radius_vectorized(center, vecs, **find_radius_kwargs)
 
         x1 = mults * props
         a = 1 / sigma**2
